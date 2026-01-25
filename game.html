@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Игра - Шахматы Онлайн</title>
+
+    <!-- Стили -->
+    <link rel="stylesheet" href="/css/chessboard-1.0.0.min.css">
+    <!-- Убедитесь, что путь к вашему файлу стилей правильный -->
+    <link rel="stylesheet" href="/css/game.css">
+
+</head>
+<body>
+
+    <!-- Главный контейнер, к которому применяется Flexbox-разметка -->
+    <div class="container">
+
+        <!-- Левая часть: доска и информация о ходе -->
+        <div class="game-area">
+            <!-- Этот ID ('turn-info') теперь будет стилизован -->
+            <div id="turn-info">Ожидание начала игры...</div>
+            <!-- Этот ID ('myBoard') важен, чтобы ваш game.js продолжал работать -->
+            <div id="myBoard"></div>
+        </div>
+
+        <!-- Правая часть: панель управления и статуса -->
+        <div class="info-panel">
+
+            <div class="status-box">
+                <h3>Статус</h3>
+                <!-- Этот ID ('status') сохранен -->
+                <p id="status">Подключение к серверу...</p>
+            </div>
+
+            <div class="controls">
+                <!-- Кнопка поиска игры -->
+                <button id="find-game-btn">Найти игру</button>
+
+                <!-- Игровые кнопки (скрыты по умолчанию) -->
+                <div id="game-controls" style="display: none;">
+                    <button id="resign-btn">Сдаться</button>
+                    <button id="rematch-btn" style="display: none;">Реванш</button>
+                </div>
+
+                <!-- Ссылка для возврата в лобби -->
+                <a href="/lobby.html" class="button-link">Вернуться в лобби</a>
+            </div>
+
+            <!-- Блок с отладочной информацией -->
+            <div class="debug-box">
+                <h3>Отладочная информация</h3>
+                <p>FEN: <code id="fen">-</code></p>
+                <p>PGN:</p>
+                <!-- Этот ID ('pgn') сохранен -->
+                <pre id="pgn">-</pre>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Подключение скриптов в конце body -->
+    <script src="/js/jquery-3.4.1.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/js/chessboard-1.0.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.min.js"></script>
+    <script src="/js/game.js"></script>
+
+</body>
+</html>
