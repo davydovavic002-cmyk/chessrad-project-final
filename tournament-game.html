@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Турнирная Игра - Шахматы Онлайн</title>
+
+    <!-- Стили -->
+    <link rel="stylesheet" href="/css/chessboard-1.0.0.min.css">
+    <!-- Мы создадим этот файл на основе вашего game.css -->
+    <link rel="stylesheet" href="/css/tournament-game.css">
+
+</head>
+<body>
+
+    <!-- Главный контейнер, структура сохранена -->
+    <div class="container">
+
+        <!-- Левая часть: доска и информация о ходе -->
+        <div class="game-area">
+            <!-- Информация о ходе и игроках (можно будет улучшить, добавив имена) -->
+            <div id="turn-info">Загрузка информации о матче...</div>
+            <!-- Ваша доска -->
+            <div id="myBoard"></div>
+        </div>
+
+        <!-- Правая часть: панель управления и статуса -->
+        <div class="info-panel">
+
+            <div class="status-box">
+                <h3>Статус</h3>
+                <!-- Статус игры (Шах, Мат и т.д.) -->
+                <p id="status">Ожидание первого хода...</p>
+            </div>
+
+            <div class="controls">
+                <!-- Основные игровые кнопки -->
+                <div id="game-controls">
+                    <button id="resign-btn">Сдаться</button>
+                    <!-- Новая кнопка для возврата на страницу турнира -->
+                    <button id="return-to-tournament-btn">Вернуться к турниру</button>
+                </div>
+            </div>
+
+            <!-- Блок с отладочной информацией сохранен, он полезен -->
+            <div class="debug-box">
+                <h3>Отладочная информация</h3>
+                <p>FEN: <code id="fen">-</code></p>
+                <p>PGN:</p>
+                <pre id="pgn">-</pre>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Подключение скриптов -->
+    <script src="/js/jquery-3.4.1.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/js/chessboard-1.0.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.min.js"></script>
+    <!-- Самое главное: подключаем новый JS файл для турнирной логики -->
+    <script src="/js/tournament-game.js"></script>
+
+</body>
+</html>
