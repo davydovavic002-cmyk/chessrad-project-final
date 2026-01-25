@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Турнир</title>
+    <!-- ИЗМЕНЕНИЕ: Подключаем наш новый, правильный CSS-файл -->
+    <link rel="stylesheet" href="/css/tournament.css">
+</head>
+<body>
+
+    <!-- Элемент для отображения статуса входа -->
+    <div id="user-status">Загрузка данных пользователя...</div>
+
+    <!-- Добавил ссылку для удобной навигации -->
+    <p><a href="/lobby.html">&larr; Вернуться в лобби</a></p>
+
+    <h1>Шахматный Турнир</h1>
+
+    <!-- Блок с основной информацией и кнопкой регистрации -->
+    <div class="info-block">
+        <p><strong>Статус:</strong> <span id="tournamentstatus">загрузка...</span></p>
+        <p><strong>Текущий раунд:</strong> <span id="roundnumber">0</span></p>
+        <button id="registerBtn">Зарегистрироваться на турнир</button>
+    </div>
+
+    <!-- Список участников -->
+    <h2>Участники <span id="playercount">(0)</span></h2>
+    <ul id="playerlist">
+        <li>Загрузка...</li>
+    </ul>
+
+    <!-- Пары текущего раунда -->
+    <h2>Пары текущего раунда</h2>
+    <table id="pairingstable">
+        <thead>
+            <tr>
+                <th>Игрок 1 (Белые)</th>
+                <th>Игрок 2 (Черные)</th>
+                <th>Результат/Ссылка</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- Сюда JavaScript будет добавлять строки -->
+        </tbody>
+    </table>
+
+    <!-- Турнирная таблица -->
+    <h2>Турнирная таблица</h2>
+    <table id="standingstable">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Игрок</th>
+                <th>Очки</th>
+                <th>Побед</th>
+                <th>Ничьих</th>
+                <th>Поражений</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- Сюда JavaScript будет добавлять строки -->
+        </tbody>
+    </table>
+
+    <!-- Подключение скриптов ОБЯЗАТЕЛЬНО в конце body -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/js/tournament.js"></script>
+
+</body>
+</html>
