@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Лобби - Шахматы Онлайн</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <script src="/socket.io/socket.io.js"></script>
+
+</head>
+<body>
+    <div class="lobby-container">
+        <!-- Этот блок будет заполнен скриптом -->
+        <div id="user-status" style="text-align: right; margin-bottom: 20px;">
+            <p>Загрузка данных пользователя...</p>
+        </div>
+
+        <h1>Студия ChessRad</h1>
+        <p>Выберите, что вы хотите сделать:</p>
+
+        <div class="lobby-actions">
+            <button id="find-game-btn">Найти игру</button>
+            <button id="profile-btn" disabled>Мой профиль</button>
+            <!-- ИЗМЕНЕНИЕ: Добавлен id и убран атрибут disabled -->
+            <button id="tournaments-btn">Турниры</button>
+        </div>
+    </div>
+
+    <!-- Подключаем ТОЛЬКО ОДИН скрипт для этой страницы -->
+    <script src="/js/lobby.js"></script>
+</body>
+</html>
