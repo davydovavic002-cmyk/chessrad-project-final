@@ -355,24 +355,42 @@ io.on('connection', (socket) => {
     });
 
 
-    // ----- ЛОГИКА ТУРНИРА -----
-    socket.on('tournament:getState', () => {
-        console.log(`[Socket.IO] ${socket.user.username} запросил состояние турнира.`);
+// server.js
+
+
+// server.js
+
+// ... внутри io.on('connection', socket => { ... })
+
+socket.on('tournament:getState', (tournamentId) => {
+    // В нашем случае у нас один главный турнир
+    if (mainTournament && mainTournament.id === tournamentId) {
+        console.log(`[Server] Клиент ${socket.user?.username || socket.id} запросил состояние турнира ${tournamentId}`);
+        // Отправляем состояние ТОЛЬКО этому одному клиенту, который попросил
         socket.emit('tournament:stateUpdate', mainTournament.getState());
-    });
+    }
+});
+// ...
 
-    socket.on('tournament:register', () => {
-        console.log(`[Socket.IO] ${socket.user.username} пытается зарегистрироваться в турнире.`);
-        // Передаем весь объект socket, а не только id
-        const result = mainTournament.register(socket.user, socket);
+socket.on('tournament:register', () => {
+    if (!socket.user || !socket.user.username) {
+        return socket.emit('tournament:error', { message: 'Не удалось определить пользователя.' });
+    }
 
-        if (!result.success) {
-            console.error(`[Server] Ошибка регистрации ${socket.user.username}: ${result.message}`);
-            socket.emit('tournament:error', { message: result.message });
-        } else {
-            console.log(`[Server] ${socket.user.username} успешно зарегистрирован в турнире.`);
-        }
-    });
+    console.log(`[Socket.IO] ${socket.user.username} пытается зарегистрироваться в турнире.`);
+
+    const result = mainTournament.register(socket.user, socket);
+
+    if (!result.success) {
+        socket.emit('tournament:error', { message: result.message });
+    } else {
+        console.log(`[Server] ${socket.user.username} успешно зарегистрирован.`);
+
+        // --- ВОТ ЭТО ИЗМЕНЕНИЕ ---
+        // Меняем 'tournament:state' на 'tournament:stateUpdate', чтобы клиент его услышал
+        io.emit('tournament:stateUpdate', mainTournament.getState());
+    }
+});
 
     socket.on('tournament:leave', () => {
         console.log(`[Socket.IO] Игрок ${socket.user.username} покидает турнир.`);
