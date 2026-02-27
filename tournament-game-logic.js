@@ -2,126 +2,144 @@
 import { Chess } from 'chess.js';
 import { randomUUID } from 'crypto';
 
-// Это специальный класс игры, предназначенный ТОЛЬКО для турниров.
 export class TournamentGame {
 
-// ИСПРАВЛЕННЫЙ КОД
-constructor(options) {
-    this.io = options.io;
-    this.gameId = randomUUID();
-    this.chess = new Chess();
+    constructor(options) {
+        this.io = options.io;
+        this.gameId = randomUUID();
+        this.chess = new Chess();
 
-    this.playerWhite = options.playerWhite;
-    this.playerBlack = options.playerBlack;
+        this.playerWhite = options.playerWhite;
+        this.playerBlack = options.playerBlack;
 
-    // Эта строка была добавлена, чтобы сохранить ID турнира
-    this.tournamentId = options.tournamentId;
+        // this.tournamentId = options.tournamentId; // Можно оставить для информации, но важнее ссылка
+        this.tournament = options.tournament; // <-- ДОБАВЛЕНО: Ссылка на сам объект Tournament
 
-    // В этой строке кавычки '' заменены на обратные ``
-    console.log(`[TournamentGame ${this.gameId}] Экземпляр игры создан для турнира ${this.tournamentId}. Белые: ${this.playerWhite.username}, Черные: ${this.playerBlack.username}`);
-}
+        if (!this.tournament) {
+            console.error(`[TournamentGame ${this.gameId}] Ошибка: Tournament-объект не был передан.`);
+        }
+
+        console.log(`[TournamentGame ${this.gameId}] Экземпляр игры создан для турнира ${this.tournament?.id}. Белые: ${this.playerWhite.username}, Черные: ${this.playerBlack.username}`);
+    }
+
     /**
      * Обрабатывает ход, сделанный игроком.
      * @param {object} move - Объект хода от chess.js (например, { from: 'e2', to: 'e4' })
      * @param {string} userId - ID игрока, который делает ход.
      * @returns {object} - Результат операции.
      */
-// tournament-game-logic.js
+    makeMove(move) {
+        try {
+            const result = this.chess.move(move);
+            if (result === null) {
+                throw new Error('Недопустимый ход');
+            }
+            this.io.to(this.gameId).emit('tournament:game:update', this.chess.fen());
 
-// ЗАМЕНИТЕ ВЕСЬ ВАШ МЕТОД makeMove НА ЭТОТ
-makeMove(move) {
-    try {
-        const result = this.chess.move(move);
-        if (result === null) {
-            throw new Error('Недопустимый ход');
-        }
+            if (this.chess.game_over()) {
+                let reason = 'Игра окончена';
+                let winnerPlayer = null; // Будет объектом игрока
+                let loserPlayer = null; // Будет объектом игрока
+                let draw = false;
 
-        // Отправляем обновленное состояние всем в комнате
-        this.io.to(this.gameId).emit('tournament:game:update', this.chess.fen());
+                if (this.chess.in_checkmate()) {
+                    reason = 'Мат';
+                    winnerPlayer = this.chess.turn() === 'w' ? this.playerBlack : this.playerWhite;
+                    loserPlayer = this.chess.turn() === 'w' ? this.playerWhite : this.playerBlack;
+                } else if (this.chess.in_draw() || this.chess.in_stalemate() || this.chess.in_threefold_repetition() || this.chess.insufficient_material()) {
+                    reason = 'Ничья';
+                    draw = true;
+                    // В случае ничьи, оба игрока "участвовали" в ней
+                    winnerPlayer = this.playerWhite; // Для handleMatchCompletion оба будут обработаны
+                    loserPlayer = this.playerBlack;
+                }
 
-        // Проверяем, закончилась ли игра
-        // ИСПОЛЬЗУЕМ СТАРЫЙ СИНТАКСИС БИБЛИОТЕКИ
-        if (this.chess.game_over()) {
-            let reason = 'Игра окончена';
-            let winner = null; // null в случае ничьи
+                // <-- ГЛАВНОЕ ИЗМЕНЕНИЕ: Уведомляем Tournament о завершении игры
+                if (this.tournament) {
+                    this.tournament.handleMatchCompletion({
+                        gameId: this.gameId,
+                        winner: winnerPlayer,
+                        loser: loserPlayer,
+                        draw: draw,
+                        reason: reason // Можно добавить причину
+                    });
+                } else {
+                    console.error(`[TournamentGame ${this.gameId}] Не удалось сообщить о завершении матча: Tournament-объект отсутствует.`);
+                }
 
-            if (this.chess.in_checkmate()) {
-                reason = 'Мат';
-                winner = this.chess.turn() === 'w' ? this.playerBlack.username : this.playerWhite.username;
-            } else if (this.chess.in_draw()) {
-                reason = 'Ничья';
-            } else if (this.chess.in_stalemate()) {
-                reason = 'Пат';
-            } else if (this.chess.in_threefold_repetition()) {
-                reason = 'Троекратное повторение';
+                this.io.to(this.gameId).emit('tournament:game:over', {
+                    reason: reason,
+                    winner: winnerPlayer?.username, // Отправляем username для клиента
+                    white: this.playerWhite.username,
+                    black: this.playerBlack.username
+                });
+
+                return { success: true, gameOver: true, reason, winner: winnerPlayer?.username };
             }
 
-            // Отправляем событие окончания игры
-            this.io.to(this.gameId).emit('tournament:game:over', {
-                reason: reason,
+            return { success: true, gameOver: false };
+
+        } catch (error) {
+            console.error(`[TournamentGame ${this.gameId}] Ошибка при совершении хода:`, error.message);
+            return { success: false, error: error.message };
+        }
+    }
+
+    resign(resigningUser) {
+        if (!resigningUser) {
+            return { success: false, message: 'Ошибка: пользователь не определен.' };
+        }
+
+        console.log(`[TournamentGame ${this.gameId}] Игрок ${resigningUser.username} сдался.`);
+
+        let winner, loser;
+
+        if (resigningUser.id === this.playerWhite.id) {
+            winner = this.playerBlack;
+            loser = this.playerWhite;
+        } else if (resigningUser.id === this.playerBlack.id) {
+            winner = this.playerWhite;
+            loser = this.playerBlack;
+        } else {
+            const errorMessage = `Пользователь ${resigningUser.username} не является участником этой игры.`;
+            console.error(`[TournamentGame ${this.gameId}] ${errorMessage}`);
+            return { success: false, message: errorMessage };
+        }
+
+        const gameOverMessage = `Игра окончена: ${resigningUser.username} сдался. Победитель: ${winner.username}.`;
+
+        // <-- ГЛАВНОЕ ИЗМЕНЕНИЕ: Уведомляем Tournament о сдаче
+        if (this.tournament) {
+            this.tournament.handleMatchCompletion({
+                gameId: this.gameId,
                 winner: winner,
-                white: this.playerWhite.username,
-                black: this.playerBlack.username
+                loser: loser,
+                draw: false, // При сдаче нет ничьей
+                reason: 'resign'
             });
-            return { success: true, gameOver: true, reason, winner };
+        } else {
+            console.error(`[TournamentGame ${this.gameId}] Не удалось сообщить о сдаче: Tournament-объект отсутствует.`);
         }
 
-        return { success: true, gameOver: false };
+        this.io.to(this.gameId).emit('tournament:game:over', {
+            reason: gameOverMessage,
+            winner: winner.username,
+            white: this.playerWhite.username,
+            black: this.playerBlack.username
+        });
 
-    } catch (error) {
-        console.error(`[TournamentGame ${this.gameId}] Ошибка при совершении хода:`, error.message);
-        return { success: false, error: error.message };
+        return {
+            success: true,
+            message: gameOverMessage,
+            report: { // Этот report уже не так критичен для Tournament, но может быть полезен для других целей
+                gameId: this.gameId,
+                tournamentId: this.tournament?.id, // Используем опциональную цепочку
+                winner: winner,
+                loser: loser,
+                reason: 'resign'
+            }
+        };
     }
-}
-
-// tournament-game-logic.js
-
-// ЗАМЕНИТЕ ВЕСЬ ВАШ МЕТОД resign НА ЭТОТ
-resign(resigningUser) {
-    if (!resigningUser) {
-        return { success: false, message: 'Ошибка: пользователь не определен.' };
-    }
-
-    console.log(`[TournamentGame ${this.gameId}] Игрок ${resigningUser.username} сдался.`);
-
-    let winner, loser;
-
-    if (resigningUser.id === this.playerWhite.id) {
-        winner = this.playerBlack;
-        loser = this.playerWhite;
-    } else if (resigningUser.id === this.playerBlack.id) {
-        winner = this.playerWhite;
-        loser = this.playerBlack;
-    } else {
-        const errorMessage = `Пользователь ${resigningUser.username} не является участником этой игры.`;
-        console.error(`[TournamentGame ${this.gameId}] ${errorMessage}`);
-        return { success: false, message: errorMessage };
-    }
-
-    const gameOverMessage = `Игра окончена: ${resigningUser.username} сдался. Победитель: ${winner.username}.`;
-
-    // Отправляем событие на клиент (если нужно)
-    this.io.to(this.gameId).emit('tournament:game:over', {
-        reason: gameOverMessage,
-        winner: winner.username,
-        white: this.playerWhite.username,
-        black: this.playerBlack.username
-    });
-
-    // Формируем успешный результат для server.js
-    return {
-        success: true,
-        message: gameOverMessage,
-        report: {
-            gameId: this.gameId,
-            tournamentId: this.tournamentId,
-            winner: winner, // Возвращаем весь объект победителя
-            loser: loser,   // Возвращаем весь объект проигравшего
-            reason: 'resign'
-        }
-    };
-}
-
 
     /**
      * Определяет цвет игрока по его ID.
