@@ -1,96 +1,113 @@
-// profile.js - Итоговая версия для httpOnly Cookies
-
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('ЗАПУЩЕН СКРИПТ PROFILE.JS (Версия для httpOnly Cookies)');
+    console.log('ЗАПУЩЕН СКРИПТ PROFILE.JS (Версия: Полный фарш с историей)');
 
-    const profileInfoDiv = document.getElementById('profile-info');
-    const skillLevelSelect = document.getElementById('skill-level-select');
-    const saveSkillBtn = document.getElementById('save-skill-btn');
-    const skillSaveStatus = document.getElementById('skill-save-status');
-    const logoutLink = document.getElementById('logout-link-profile');
+    const levels = [
+        { name: 'Новичок', min: 0, next: 1500 },
+        { name: 'Любитель', min: 1500, next: 2500 },
+        { name: 'Опытный', min: 2500, next: 4500 },
+        { name: 'Мастер', min: 4500, next: 7500 },
+        { name: 'Большой мастер', min: 7500, next: Infinity }
+    ];
 
-    if (!profileInfoDiv || !skillLevelSelect || !saveSkillBtn || !skillSaveStatus || !logoutLink) {
-        console.error('Критическая ошибка: один или несколько ключевых элементов UI не найдены на странице! Проверьте ID в HTML.');
-        return;
-    }
+    const el = {
+        wins: document.getElementById('wins-count'),
+        draws: document.getElementById('draws-count'),
+        losses: document.getElementById('losses-count'),
+        username: document.getElementById('display-username'),
+        rating: document.getElementById('display-rating'),
+        rank: document.getElementById('current-rank-text'),
+        progress: document.getElementById('progress-fill-bar'),
+        points: document.getElementById('points-to-next-text'),
+        trophyShelf: document.getElementById('trophy-shelf'),
+        historyTable: document.getElementById('game-history-list'), // Наша таблица
+        logout: document.getElementById('logout-btn')
+    };
 
-    // --- ИЗМЕНЕНИЕ 1: НОВАЯ ЛОГИКА ЗАГРУЗКИ ПРОФИЛЯ ---
     try {
-        // Запрашиваем профиль. Браузер сам прикрепит httpOnly куку.
         const response = await fetch('/api/profile');
-
-        if (!response.ok) {
-            // Если ответ не "ok" (например, 401 Unauthorized), значит пользователь не авторизован.
-            throw new Error(`Ошибка авторизации, статус: ${response.status}`);
-        }
-
+        if (!response.ok) throw new Error(`Ошибка: ${response.status}`);
         const user = await response.json();
-        // Отображаем информацию о пользователе
-        profileInfoDiv.innerHTML = `
-            <p><strong>Имя пользователя:</strong> ${user.username}</p>
-            <p><strong>Рейтинг:</strong> ${user.elo || 1200}</p>
-            <p><strong>Уровень:</strong> ${user.level || 'Не указан'}</p>
-            <p><strong>Побед:</strong> ${user.wins || 0}</p>
-            <p><strong>Поражений:</strong> ${user.losses || 0}</p>
-            <p><strong>Ничьих:</strong> ${user.draws || 0}</p>
-        `;
 
-        if (user.level) {
-            skillLevelSelect.value = user.level;
+        // 1. Статистика
+        if (el.wins) el.wins.textContent = user.wins || 0;
+        if (el.draws) el.draws.textContent = user.draws || 0;
+        if (el.losses) el.losses.textContent = user.losses || 0;
+        if (el.username) el.username.textContent = user.username;
+
+        const rating = user.rating || 500;
+        if (el.rating) el.rating.textContent = rating;
+
+        // 2. Прогресс-бар
+        const currentLevel = levels.find(l => rating >= l.min && rating < l.next);
+        if (el.rank) el.rank.textContent = currentLevel.name;
+
+        if (el.progress && el.points) {
+            if (currentLevel.next !== Infinity) {
+                const range = currentLevel.next - currentLevel.min;
+                const pointsInLevel = rating - currentLevel.min;
+                const percent = Math.max(5, Math.min(100, (pointsInLevel / range) * 100));
+                el.progress.style.width = `${percent}%`;
+                const nextLevel = levels[levels.indexOf(currentLevel) + 1].name;
+                el.points.textContent = `До уровня "${nextLevel}" осталось ${currentLevel.next - rating} очков`;
+            } else {
+                el.progress.style.width = '100%';
+                el.progress.style.background = 'linear-gradient(90deg, #FFD700, #FFA500)';
+                el.points.textContent = 'Вы достигли вершины мастерства!';
+            }
         }
 
-    } catch (error) {
-        console.error('Ошибка при загрузке профиля:', error.message);
-        // Если что-то пошло не так (куки нет, она невалидна), просто перенаправляем на главную.
-        window.location.href = '/';
-        return; // Прекращаем выполнение скрипта, т.к. пользователь не авторизован
+        // 3. Трофеи
+        if (el.trophyShelf && user.trophies) {
+            const trophies = typeof user.trophies === 'string' ? JSON.parse(user.trophies) : user.trophies;
+            if (trophies.length > 0) {
+                const noMsg = document.getElementById('no-trophies');
+                if (noMsg) noMsg.remove();
+                trophies.forEach(t => {
+                    const medal = document.createElement('div');
+                    medal.className = `medal ${t.color || 'yellow'}`;
+                    medal.innerHTML = '🏆';
+                    medal.title = `${t.tournamentName} - ${t.place} место`;
+                    medal.style.cssText = "width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #ffd700; cursor: help; font-size: 20px;";
+                    el.trophyShelf.appendChild(medal);
+                });
+            }
+        }
+
+        // 4. НОВОЕ: Логика Истории Матчей
+        if (el.historyTable) {
+            // Предположим, бэкенд отдает историю в user.history
+            const history = user.history || [];
+
+            if (history.length > 0) {
+                el.historyTable.innerHTML = ''; // Очищаем текст "История пуста"
+
+                history.slice(0, 5).forEach(game => { // Берем последние 5 игр
+                    const row = document.createElement('tr');
+
+                    // Красим результат: Победа - зеленая, Поражение - красная
+                    let resColor = game.result === 'Победа' ? '#2ed573' : (game.result === 'Ничья' ? '#ff9f43' : '#ff4757');
+
+                    row.innerHTML = `
+                        <td>${game.opponent || 'Аноним'}</td>
+                        <td style="color: ${resColor}; font-weight: bold;">${game.result}</td>
+                        <td>${game.type || 'Матч'}</td>
+                    `;
+                    el.historyTable.appendChild(row);
+                });
+            }
+        }
+
+    } catch (e) {
+        console.error("Ошибка:", e);
     }
 
-    // --- ИЗМЕНЕНИЕ 2: УПРОЩЕННОЕ СОХРАНЕНИЕ УРОВНЯ ---
-    saveSkillBtn.addEventListener('click', async () => {
-        const newSkillLevel = skillLevelSelect.value;
-        skillSaveStatus.textContent = 'Сохранение...';
-        skillSaveStatus.style.color = 'inherit';
-
-        try {
-            const response = await fetch('/api/user/level', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    // Заголовок 'Authorization' больше не нужен, кука отправляется автоматически
-                },
-                body: JSON.stringify({ level: newSkillLevel }),
-            });
-
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.message || 'Ошибка сервера');
+    // 5. Выход
+    if (el.logout) {
+        el.logout.onclick = async () => {
+            if (confirm("Выйти из аккаунта?")) {
+                await fetch('/api/logout', { method: 'POST' });
+                window.location.href = '/';
             }
-
-            skillSaveStatus.style.color = 'green';
-            skillSaveStatus.textContent = 'Сохранено!';
-
-            // Перезагружаем страницу, чтобы обновить данные профиля
-            window.location.reload();
-
-        } catch (error) {
-            skillSaveStatus.style.color = 'red';
-            skillSaveStatus.textContent = `Ошибка: ${error.message}`;
-        } finally {
-            setTimeout(() => { skillSaveStatus.textContent = ''; }, 3000);
-        }
-    });
-
-    // --- ИЗМЕНЕНИЕ 3: НОВАЯ ЛОГИКА ВЫХОДА ---
-    logoutLink.addEventListener('click', async (event) => {
-        event.preventDefault();
-
-        // Отправляем запрос на сервер для удаления httpOnly куки
-        await fetch('/api/logout', { method: 'POST' });
-
-        // localStorage.removeItem('jwtToken'); // <-- БОЛЬШЕ НЕ НУЖНО
-
-        // Перенаправляем на главную страницу
-        window.location.href = '/';
-    });
+        };
+    }
 });
