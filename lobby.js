@@ -1,13 +1,7 @@
 // lobby.js - Версия для httpOnly Cookies
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // ИЗМЕНЕНИЕ 1: УДАЛЯЕМ ВСЕ УПОМИНАНИЯ localStorage
-    // const token = localStorage.getItem('jwtToken'); // УДАЛЕНО
-    // if (token) { ... } // УДАЛЕНО
-
-    // Вместо этого мы сразу пытаемся получить данные профиля.
-    // Если у пользователя есть валидная кука, сервер вернет данные.
-    // Если нет, сервер вернет ошибку, и мы обработаем это.
+    
     try {
         const response = await fetch('/api/profile', {
             method: 'GET' // Заголовки Authorization и Content-Type больше не нужны
@@ -79,14 +73,9 @@ function setupLobbyUI(user) {
 }
 
 function connectWebSocket() {
-    // ИЗМЕНЕНИЕ 3: УПРОЩАЕМ ПОДКЛЮЧЕНИЕ WEBSOCKET
-    // const socketToken = localStorage.getItem('jwtToken'); // УДАЛЕНО
-    // if (!socketToken) return; // УДАЛЕНО
 
     console.log('Клиент: Попытка подключения к WebSocket...');
 
-    // При установке соединения браузер АВТОМАТИЧЕСКИ прикрепит httpOnly куку.
-    // Поэтому объект auth на клиенте больше не нужен.
 
     // --- ИСПРАВЛЕННЫЙ БЛОК ---
     // Вызов io() объединен в одну правильную команду с двумя аргументами
