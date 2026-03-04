@@ -1,206 +1,175 @@
 $(document).ready(async function() {
-
     // --- 1. ПРОВЕРКА АУТЕНТИФИКАЦИИ ---
+    let currentUser = null;
     try {
         const response = await fetch('/api/profile');
-        if (!response.ok) {
-            throw new Error('Пользователь не авторизован');
-        }
+        if (!response.ok) throw new Error('Пользователь не авторизован');
+        currentUser = await response.json();
     } catch (error) {
-        alert('Доступ запрещен. Пожалуйста, войдите в систему.');
+        console.error('Ошибка профиля:', error);
         window.location.href = '/';
         return;
     }
 
-    console.log('ЗАПУЩЕН СКРИПТ tournament-game.js (синхронизированная версия)');
-
-    // --- 2. ПОЛУЧЕНИЕ ID ИГРЫ ИЗ URL ---
+    // --- 2. ПОЛУЧЕНИЕ ID ИГРЫ ---
     const pathParts = window.location.pathname.split('/');
     const gameId = pathParts[pathParts.length - 1];
 
-    if (!gameId) {
-        alert('Ошибка: не удалось определить ID игры.');
-        window.location.href = '/lobby.html';
-        return;
-    }
-    console.log('ID текущей игры:', gameId);
-
-    // --- 3. ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ И ЭЛЕМЕНТЫ UI ---
+    // --- 3. ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ---
     let board = null;
     const game = new Chess();
-    let myColor = 'white';
-    let tournamentId = null;
+    let myColor = 'w';
+    let isGameOver = false;
 
     const $status = $('#status');
-    const $fen = $('#fen');
-    const $pgn = $('#pgn');
     const $turnInfo = $('#turn-info');
-    const $gameControls = $('#game-controls');
-    const $resignBtn = $('#resign-btn');
-    const $returnBtn = $('#return-to-tournament-btn');
+    const $pgn = $('#pgn');
+    const $fen = $('#fen');
 
-    // --- 5. ЛОГИКА ШАХМАТНОЙ ДОСКИ (ПЕРЕМЕЩЕНА ВВЕРХ ДЛЯ ИСПРАВЛЕНИЯ ОШИБКИ) ---
+    // Форматирование секунд в 00:00
+    function formatTime(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
 
+    // --- 4. ЛОГИКА ДОСКИ ---
     function onDragStart(source, piece) {
-        // Проверяем, что игра не окончена, сейчас ход нужного цвета, и фигура принадлежит игроку
-        if (game.game_over() || game.turn() !== myColor.charAt(0) || piece.search(new RegExp(`^${myColor.charAt(0)}`)) === -1) {
+        if (isGameOver || game.game_over()) return false;
+        if ((myColor === 'w' && piece.search(/^b/) !== -1) ||
+            (myColor === 'b' && piece.search(/^w/) !== -1) ||
+            (game.turn() !== myColor)) {
             return false;
         }
         return true;
     }
 
-// ЗАМЕНИТЕ ВСЮ ФУНКЦИЮ onDrop НА ЭТОТ КОД:
-function onDrop(source, target) {
-    // --- ДИАГНОСТИКА: ШАГ 1 ---
-    // (ИСПРАВЛЕНО: добавлены кавычки-обратные апострофы ``)
-    console.log(`--- onDrop СРАБОТАЛ ---`);
-    console.log(`Ход с ${source} на ${target}`);
-    console.log(`Мой цвет (myColor): '${myColor}'`);
-    console.log(`Чей ход по мнению game.js (game.turn()): '${game.turn()}'`);
+    function onDrop(source, target) {
+        const moveData = {
+            from: source,
+            to: target,
+            promotion: 'q'
+        };
 
-    const move = game.move({ from: source, to: target, promotion: 'q' });
+        const move = game.move(moveData);
+        if (move === null) return 'snapback';
 
-    // --- ДИАГНОСТИКА: ШАГ 2 ---
-    console.log('Результат game.move():', move);
+        // Отправляем на сервер
+        socket.emit('tournament:game:move', {
+            gameId: gameId,
+            move: moveData
+        });
 
-    if (move === null) {
-        console.error('ОШИБКА: Ход нелегальный, game.move() вернул null. Отправка на сервер отменена.');
-        return 'snapback';
+        updateGameDisplay();
     }
 
-    // Если мы дошли сюда, ход легальный.
-    console.log('УСПЕХ: Ход легальный. Отправляю данные на сервер...');
-    console.log('Отправляемые данные:', { gameId: gameId, move: { from: source, to: target, promotion: 'q' } });
-
-    // (ИСПРАВЛЕНО: Старая строка удалена, осталась только правильная)
-    socket.emit('tournament:game:move', { gameId: gameId, move: { from: source, to: target, promotion: 'q' } });
-}
     function onSnapEnd() {
         board.position(game.fen());
     }
 
-    // --- 4. ПОДКЛЮЧЕНИЕ К SOCKET.IO И ОБРАБОТЧИКИ СОБЫТИЙ ---
-    const socket = io();
+    // --- 5. SOCKET.IO ---
+    const socket = io({ transports: ['websocket'] });
 
     socket.on('connect', () => {
-        console.log('Успешно подключено. Socket ID:', socket.id);
         socket.emit('tournament:game:join', { gameId });
     });
 
-    socket.on('disconnect', () => {
-        updateStatus('Соединение с сервером потеряно. Обновите страницу.');
+    // Обновление таймеров (используем прямые селекторы, так как HTML динамический)
+    socket.on('game:timer', (data) => {
+        if (isGameOver) return;
+
+        const wStr = formatTime(data.white);
+        const bStr = formatTime(data.black);
+
+        // Находим элементы в DOM каждый раз (безопасно для динамического HTML)
+        const $wt = $('#white-timer');
+        const $bt = $('#black-timer');
+
+        $wt.text(wStr);
+        $bt.text(bStr);
+
+        // Подсветка активного таймера
+        $wt.toggleClass('active-timer', data.turn === 'w');
+        $bt.toggleClass('active-timer', data.turn === 'b');
+
+        // Критическое время
+        $wt.toggleClass('low-time', data.white < 30);
+        $bt.toggleClass('low-time', data.black < 30);
     });
 
     socket.on('game:state', (data) => {
-        console.log('Получено состояние игры (game:state):', data);
         myColor = data.color;
-        tournamentId = data.tournamentId;
         game.load(data.fen);
+
+        // Установка имен и начального состояния
+        const whiteName = data.playerWhite?.username || 'Белые';
+        const blackName = data.playerBlack?.username || 'Черные';
+
+        // Распределяем кто сверху, кто снизу (Противник всегда сверху)
+        if (myColor === 'w') {
+            $('#opponent-info .player-name').text(blackName + ' (Черные)');
+            $('#opponent-timer').attr('id', 'black-timer');
+            $('#me-info .player-name').text(currentUser.username + ' (Вы)');
+            $('#me-timer').attr('id', 'white-timer');
+        } else {
+            $('#opponent-info .player-name').text(whiteName + ' (Белые)');
+            $('#opponent-timer').attr('id', 'white-timer');
+            $('#me-info .player-name').text(currentUser.username + ' (Вы)');
+            $('#me-timer').attr('id', 'black-timer');
+        }
+
         if (!board) {
-            const config = {
+            board = Chessboard('myBoard', {
                 draggable: true,
                 position: data.fen,
                 orientation: myColor === 'w' ? 'white' : 'black',
                 pieceTheme: '/img/chesspieces/wikipedia/{piece}.png',
-                onDragStart: onDragStart, // Теперь эта функция точно определена
-                onDrop: onDrop,           // И эта тоже
-                onSnapEnd: onSnapEnd      // И эта!
-            };
-            board = Chessboard('myBoard', config);
+                onDragStart: onDragStart,
+                onDrop: onDrop,
+                onSnapEnd: onSnapEnd
+            });
         } else {
             board.position(data.fen);
         }
         updateGameDisplay();
-        $gameControls.css('display', 'flex');
     });
 
     socket.on('game:move', (move) => {
-        console.log('Получен ход от соперника:', move);
         game.move(move);
         board.position(game.fen());
         updateGameDisplay();
     });
 
+    socket.on('tournament:game:over', (data) => {
+        isGameOver = true;
+        const isWinner = data.winner === currentUser.username;
+        const resultText = data.draw ? 'НИЧЬЯ' : (isWinner ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ');
 
-// В вашем клиентском JS-файле (который управляет страницей ИГРЫ)
+        $status.html(`<b class="${isWinner ? 'win' : 'loss'}">${resultText}</b>: ${data.reason}`);
 
-socket.on('game:over', (data) => {
-    console.log('Игра окончена:', data);
-
-    // 1. Формируем понятное сообщение для пользователя
-    const finalMessage = `Игра окончена! ${data.reason || ''}. Ваш результат: ${data.yourStatus || ''}`;
-
-    // 2. Отображаем это сообщение (у вас это делает updateStatus)
-    updateStatus(finalMessage);
-
-    // 3. Отключаем игровые кнопки
-    $resignBtn.prop('disabled', true);
-    // Возможно, стоит отключить и возможность делать ходы на доске
-    // chess.setFEN(chess.fen()); // Простой способ заблокировать доску
-
-    // 4. --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ---
-    // Через 3 секунды автоматически возвращаем пользователя на страницу турнира.
-    // Это дает ему время прочитать, что произошло.
-    console.log('Возвращаемся на страницу турнира через 3 секунды...');
-    setTimeout(() => {
-        // Укажите правильный URL вашей страницы турнира!
-        window.location.href = '/tournament';
-    }, 3000); // 3000 миллисекунд = 3 секунды
-});
-
-    socket.on('error', (data) => {
-        console.error('Ошибка от сервера:', data.message);
-        alert(`Ошибка: ${data.message}`);
-        if (tournamentId) {
-            window.location.href = `/tournament/${tournamentId}`;
-        } else {
-            window.location.href = '/lobby.html';
-        }
+        setTimeout(() => {
+            alert(`Игра окончена: ${resultText}\nПричина: ${data.reason}`);
+            window.location.href = '/tournament.html';
+        }, 1500);
     });
 
-    // --- 6. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ И КНОПКИ ---
-
+    // --- 6. UI ---
     function updateGameDisplay() {
-        const moveColor = game.turn() === 'b' ? 'Черных' : 'Белых';
-        let statusText = '';
-        if (game.in_checkmate()) {
-            statusText = `Игра окончена, мат. ${moveColor} проиграли.`;
-        } else if (game.in_draw()) {
-            statusText = 'Игра окончена, ничья.';
-        } else {
-            statusText = `Ход ${moveColor}`;
-            if (game.in_check()) {
-                statusText += `, ${moveColor} под шахом.`;
-            }
-        }
-        $status.html(statusText);
+        const myTurn = game.turn() === myColor;
+        $turnInfo.text(myTurn ? 'ВАШ ХОД' : 'ХОД СОПЕРНИКА');
+        $turnInfo.toggleClass('active-turn', myTurn);
+        $turnInfo.toggleClass('waiting-turn', !myTurn);
+
+        $status.text(game.in_check() ? 'ШАХ!' : 'Игра продолжается');
+        $pgn.text(game.pgn());
         $fen.text(game.fen());
-        $pgn.html(game.pgn());
-        const myTurn = game.turn() === myColor.charAt(0);
-        $turnInfo.text(myTurn ? 'Ваш ход' : 'Ход соперника');
-        $turnInfo.toggleClass('my-turn', myTurn);
     }
 
-    function updateStatus(message) {
-        $status.html(message);
-    }
-
-
-// ЗАМЕНИТЕ ОБРАБОТЧИК КНОПКИ НА ЭТОТ КОД:
-$resignBtn.on('click', function() {
-    if (confirm('Вы уверены, что хотите сдаться?')) {
-        // (ИСПРАВЛЕНО: отправляем gameId, как и договаривались)
-        socket.emit('tournament:game:resign', { gameId: gameId });
-    }
-});
-
-    $returnBtn.on('click', function() {
-        if (tournamentId) {
-            window.location.href = `/tournament/${tournamentId}`;
-        } else {
-            alert('Не удалось определить турнир. Возврат в лобби.');
-            window.location.href = '/lobby.html';
-        }
+    $('#resign-btn').click(() => {
+        if (confirm('Сдаться?')) socket.emit('tournament:game:resign', { gameId });
     });
 
+    $('#return-to-tournament-btn').click(() => {
+        window.location.href = '/tournament.html';
+    });
 });
