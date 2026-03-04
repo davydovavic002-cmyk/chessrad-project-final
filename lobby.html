@@ -3,30 +3,55 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Лобби - Шахматы Онлайн</title>
+    <title>Лобби - ChessRad</title>
     <link rel="stylesheet" href="/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     <script src="/socket.io/socket.io.js"></script>
-
 </head>
 <body>
+
     <div class="lobby-container">
-        <!-- Этот блок будет заполнен скриптом -->
-        <div id="user-status" style="text-align: right; margin-bottom: 20px;">
-            <p>Загрузка данных пользователя...</p>
-        </div>
+        <header class="lobby-header">
+            <div class="logo-area">
+                <h1>ChessRad</h1>
+                <span class="badge">Online</span>
+            </div>
+            <div id="user-status" class="user-info">
+                </div>
+        </header>
 
-        <h1>Студия ChessRad</h1>
-        <p>Выберите, что вы хотите сделать:</p>
+        <main class="lobby-content">
+            <h2>Добро пожаловать в студию</h2>
+            <p class="subtitle">Выберите режим игры или проверьте свои достижения</p>
 
-        <div class="lobby-actions">
-            <button id="find-game-btn">Найти игру</button>
-            <button id="profile-btn" disabled>Мой профиль</button>
-            <!-- ИЗМЕНЕНИЕ: Добавлен id и убран атрибут disabled -->
-            <button id="tournaments-btn">Турниры</button>
-        </div>
+            <div class="menu-grid">
+                <div class="menu-card primary" id="find-game-btn">
+                    <div class="card-icon">⚔️</div>
+                    <div class="card-text">
+                        <h3>Найти игру</h3>
+                        <p>Быстрый матч 1x1</p>
+                    </div>
+                </div>
+
+                <div class="menu-card" id="profile-btn">
+                    <div class="card-icon">👤</div>
+                    <div class="card-text">
+                        <h3>Мой профиль</h3>
+                        <p>Статистика и рейтинг</p>
+                    </div>
+                </div>
+
+                <div class="menu-card" id="tournaments-btn">
+                    <div class="card-icon">🏆</div>
+                    <div class="card-text">
+                        <h3>Турниры</h3>
+                        <p>Битва за звание чемпиона</p>
+                    </div>
+                </div>
+            </div>
+        </main>
     </div>
 
-    <!-- Подключаем ТОЛЬКО ОДИН скрипт для этой страницы -->
     <script src="/js/lobby.js"></script>
 </body>
 </html>
