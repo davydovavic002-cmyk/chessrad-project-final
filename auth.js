@@ -1,18 +1,13 @@
-// auth.js - Версия для httpOnly Cookies
-
+// auth.js - Финальная версия под новый дизайн
 document.addEventListener('DOMContentLoaded', () => {
-    const authContainer = document.querySelector('.auth-container');
+    // Ищем по ID, как в новом HTML
+    const authContainer = document.getElementById('auth-container');
 
-    // --- ИЗМЕНЕНИЕ 1: Удаляем проверку токена на клиенте ---
-    // Эту проверку теперь будет делать сервер. Если пользователь уже залогинен и
-    // попытается зайти на главную страницу, сервер сам его перенаправит в лобби.
-    // Поэтому клиентский JS просто всегда показывает форму входа.
-
+    // Показываем форму (теперь через display, так как в HTML стоит display: none)
     if (authContainer) {
-        authContainer.style.visibility = 'visible';
+        authContainer.style.display = 'block';
     }
 
-    // --- Дальше логика переключения форм, она не меняется ---
     const loginView = document.getElementById('login-view');
     const registerView = document.getElementById('register-view');
     const showRegisterLink = document.getElementById('show-register');
@@ -30,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
         errorMessageEl.classList.add('hidden');
     }
 
+    // Переключение на регистрацию
     showRegisterLink.addEventListener('click', (e) => {
         e.preventDefault();
         loginView.classList.add('hidden');
@@ -37,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
         hideError();
     });
 
+    // Переключение на вход
     showLoginLink.addEventListener('click', (e) => {
         e.preventDefault();
         registerView.classList.add('hidden');
@@ -44,6 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
         hideError();
     });
 
+    // ЛОГИКА ВХОДА
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         hideError();
@@ -60,14 +58,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const responseData = await response.json();
 
-            // --- ИЗМЕНЕНИЕ 2: Проверяем флаг успеха, а не сам токен ---
-            if (!response.ok || !responseData.success) { // Добавляем проверку на responseData.success
-                throw new Error(responseData.message || 'Ошибка входа');
+            if (!response.ok || !responseData.success) {
+                throw new Error(responseData.message || 'Неверный логин или пароль');
             }
 
-            // localStorage.setItem('jwtToken', responseData.token); // <-- ЭТА СТРОКА БОЛЬШЕ НЕ НУЖНА!
-
-            // Просто переходим в лобби, браузер уже сохранил httpOnly куку.
+            // Успех! Кука установится сервером автоматически
             window.location.href = '/lobby.html';
 
         } catch (error) {
@@ -75,11 +70,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- Логика регистрации остается без изменений ---
+    // ЛОГИКА РЕГИСТРАЦИИ
     registerForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         hideError();
-        // ... ваш код регистрации не меняется
+
         const formData = new FormData(registerForm);
         const data = Object.fromEntries(formData.entries());
 
@@ -102,7 +97,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             alert('Регистрация успешна! Теперь вы можете войти.');
-            showLoginLink.click();
+            showLoginLink.click(); // Автоматически переключаем на форму входа
 
         } catch (error) {
             displayError(error.message);
