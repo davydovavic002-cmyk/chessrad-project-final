@@ -1,46 +1,42 @@
-
-import { TournamentGame } from './tournament-game-logic.js'; // Убедитесь, что путь верный
+import { TournamentGame } from './tournament-game-logic.js';
 import { randomUUID } from 'crypto';
+import { addTrophyToUser } from './db.js';
 
 export class Tournament {
-    // 1. КОНСТРУКТОР
+    constructor({ io, games, id, name }) {
+        if (!io || !games) {
+            throw new Error('Tournament requires io and games parameters.');
+        }
+        this.io = io;
+        this.games = games;
 
-// tournament.js - ЗАМЕНИТЬ НА ЭТО
+        this.id = id || `tourney-${randomUUID()}`;
+        this.name = name || 'Еженедельный Турнир';
 
-// 1. КОНСТРУКТОР
-constructor({ io, games, id, name }) { // <--- ИЗМЕНЕНИЕ ЗДЕСЬ
-    if (!io || !games) {
-        throw new Error('Tournament requires io and games parameters.');
+        // Константа времени: 5 минут (300 000 мс)
+        this.GAME_TIME_LIMIT = 5 * 60 * 1000;
+
+        this.players = new Map();
+        this.status = 'waiting';
+        this.rounds = [];
+        this.currentRound = 0;
+        this.totalRounds = 0;
+        this.activeGames = new Map();
+
+        console.log(`[Tournament ${this.id}] ${this.name} создан. Режим: 5+0`);
     }
-    this.io = io;
-    this.games = games; // Глобальная карта всех игр сервера
 
-    this.id = id || `tourney-${randomUUID()}`;
-    this.name = name || 'Еженедельный Турнир';
-    this.totalRounds = 0;
-
-    this.players = new Map(); // Map<userId, playerInfo>
-    this.status = 'waiting'; // 'waiting', 'running', 'finished'
-    this.rounds = [];
-    this.currentRound = 0;
-    this.activeGames = new Map(); // Карта активных игр ТОЛЬКО этого турнира
-
-    console.log(`[Tournament ${this.id}] ${this.name} создан.`);
-}
-    // 2. УПРАВЛЕНИЕ ИГРОКАМИ
     register(user, socket) {
-        if (this.state !== 'waiting') {
+        if (this.status !== 'waiting') {
             return { success: false, message: 'Турнир уже начался или завершен.' };
         }
 
         if (this.players.has(user.id)) {
             const playerInfo = this.players.get(user.id);
             playerInfo.socketId = socket.id;
-            this.players.set(user.id, playerInfo);
             socket.join(this.id);
-            console.log(`[Tournament ${this.id}] Игрок ${user.username} переподключился.`);
             this.broadcastStateUpdate();
-            return { success: true, message: 'Вы снова в турнире.' };
+            return { success: true, message: 'Вы снова в лобби турнира.' };
         } else {
             const playerInfo = {
                 user: user,
@@ -50,7 +46,6 @@ constructor({ io, games, id, name }) { // <--- ИЗМЕНЕНИЕ ЗДЕСЬ
             };
             this.players.set(user.id, playerInfo);
             socket.join(this.id);
-            console.log(`[Tournament ${this.id}] Игрок ${user.username} присоединился.`);
             this.broadcastStateUpdate();
             return { success: true, message: 'Вы успешно зарегистрированы.' };
         }
@@ -59,76 +54,61 @@ constructor({ io, games, id, name }) { // <--- ИЗМЕНЕНИЕ ЗДЕСЬ
     removePlayer(socket) {
         if (!socket || !socket.user) return;
         const userId = socket.user.id;
-        if (this.players.has(userId)) {
-            const player = this.players.get(userId);
+
+        if (this.status === 'waiting' && this.players.has(userId)) {
             this.players.delete(userId);
             socket.leave(this.id);
-            console.log(`[Tournament ${this.id}] Игрок ${player.user.username} покинул турнир. Всего: ${this.players.size}`);
             this.broadcastStateUpdate();
         }
     }
 
-    // 3. ЛОГИКА ТУРНИРА
     start() {
-        if (this.state !== 'waiting' || this.players.size < 2) {
-            console.log(`[Tournament ${this.id}] Ошибка старта: турнир уже запущен или недостаточно игроков.`);
+        if (this.status !== 'waiting' || this.players.size < 2) {
             return false;
         }
 
-        this.state = 'running';
+        this.status = 'running';
         const playerCount = this.players.size;
-        // Простая логика определения кол-ва раундов, можно усложнить
-        this.totalRounds = Math.max(3, Math.ceil(Math.log2(playerCount)));
+        this.totalRounds = Math.max(2, Math.ceil(Math.log2(playerCount)));
 
-        console.log(`[Tournament ${this.id}] Запуск турнира. Игроков: ${playerCount}. Раундов: ${this.totalRounds}`);
+        console.log(`[Tournament ${this.id}] Запуск. Раундов: ${this.totalRounds}`);
         this.startNextRound();
         return true;
     }
 
     startNextRound() {
-        if (this.state !== 'running') return;
-        if (this.players.size < 2) {
-            console.log(`[Tournament ${this.id}] Остался один или ноль игроков. Завершаем турнир досрочно.`);
-            this.finishTournament();
-            return;
-        }
+        if (this.status !== 'running') return;
 
-        this.currentRound++; // <-- ИСПРАВЛЕНО: убран двойной вызов
-        console.log(`[Tournament ${this.id}] Начинается раунд ${this.currentRound}`);
-
+        this.currentRound++;
         this.activeGames.clear();
+
         const currentRoundMatchups = [];
         const playersInThisRound = new Set();
         const sortedPlayers = Array.from(this.players.values()).sort((a, b) => b.score - a.score);
 
-        for (const player of sortedPlayers) {
+        for (let i = 0; i < sortedPlayers.length; i++) {
+            const player = sortedPlayers[i];
             if (playersInThisRound.has(player.user.id)) continue;
 
-            const opponent = sortedPlayers.find(p => {
-                if (p.user.id === player.user.id) return false;
-                if (playersInThisRound.has(p.user.id)) return false;
-                // Не играть с тем же оппонентом, если есть другие варианты
-                if (this.players.size > 2 && player.opponentsPlayedIds.has(p.user.id)) return false;
-                return true;
-            });
+            const opponent = sortedPlayers.find(p =>
+                p.user.id !== player.user.id &&
+                !playersInThisRound.has(p.user.id)
+            );
 
             if (opponent) {
                 const gameId = this.createGameForPlayers(player, opponent);
-                this.activeGames.set(gameId, { player1Id: player.user.id, player2Id: opponent.user.id });
+                this.activeGames.set(gameId, { p1: player.user.id, p2: opponent.user.id });
                 playersInThisRound.add(player.user.id);
                 playersInThisRound.add(opponent.user.id);
                 currentRoundMatchups.push({ id: gameId, players: [player.user.id, opponent.user.id], result: null });
             } else {
                 player.score += 1;
-                console.log(`[Tournament ${this.id}] Оппонент не найден для ${player.user.username}. Выдаем очко (bye).`);
+                playersInThisRound.add(player.user.id);
+                console.log(`[Tournament] Игрок ${player.user.username} получает "Bye" (1 очко)`);
             }
         }
 
-        // Только если были созданы матчи, добавляем запись о раунде
-        if (currentRoundMatchups.length > 0) {
-            this.rounds.push({ round: this.currentRound, games: currentRoundMatchups });
-        }
-
+        this.rounds.push({ round: this.currentRound, games: currentRoundMatchups });
         this.broadcastStateUpdate();
 
         if (this.activeGames.size === 0) {
@@ -136,77 +116,68 @@ constructor({ io, games, id, name }) { // <--- ИЗМЕНЕНИЕ ЗДЕСЬ
         }
     }
 
-    createGameForPlayers(player1, player2) {
-        const whitePlayer = Math.random() > 0.5 ? player1 : player2;
-        const blackPlayer = whitePlayer === player1 ? player2 : player1;
+    createGameForPlayers(p1, p2) {
+        const isP1White = Math.random() > 0.5;
+        const white = isP1White ? p1 : p2;
+        const black = isP1White ? p2 : p1;
 
         const newGame = new TournamentGame({
-            playerWhite: whitePlayer.user,
-            playerBlack: blackPlayer.user,
+            playerWhite: white.user,
+            playerBlack: black.user,
             io: this.io,
-            tournament: this // Передаем ссылку на сам турнир!
+            tournament: this,
+            timeLimit: this.GAME_TIME_LIMIT // ПЕРЕДАЕМ ВРЕМЯ
         });
 
         this.games.set(newGame.gameId, newGame);
-        player1.opponentsPlayedIds.add(player2.user.id);
-        player2.opponentsPlayedIds.add(player1.user.id);
 
-        console.log(`[Tournament ${this.id}] Создана игра ${newGame.gameId} для ${whitePlayer.user.username} и ${blackPlayer.user.username}`);
-        this.io.to(whitePlayer.socketId).emit('tournament:gameCreated', { gameId: newGame.gameId });
-        this.io.to(blackPlayer.socketId).emit('tournament:gameCreated', { gameId: newGame.gameId });
+        // Уведомляем игроков и передаем время для фронтенда
+        this.io.to(white.socketId).emit('tournament:gameCreated', {
+            gameId: newGame.gameId,
+            color: 'w',
+            timeLimit: this.GAME_TIME_LIMIT
+        });
+        this.io.to(black.socketId).emit('tournament:gameCreated', {
+            gameId: newGame.gameId,
+            color: 'b',
+            timeLimit: this.GAME_TIME_LIMIT
+        });
+
         return newGame.gameId;
     }
 
-    // <<< ----- ВОТ ГЛАВНОЕ ИСПРАВЛЕНИЕ ----- >>>
-    handleMatchCompletion(report) {
-        const { winner, loser, draw, gameId } = report;
+    handleMatchCompletion({ gameId, winner, loser, draw }) {
+        if (!this.activeGames.has(gameId)) return;
 
-        if (!this.activeGames.has(gameId)) {
-            console.log(`[Tournament ${this.id}] Получен результат для уже завершенной игры ${gameId}.`);
-            return;
-        }
-
-        // --- ОБНОВЛЕНИЕ ОЧКОВ ---
-        let resultString = '';
+        let resultText = '';
         if (draw) {
-            // В `winner` и `loser` при ничьей передаются оба игрока
-            const player1 = this.players.get(winner.id);
-            const player2 = this.players.get(loser.id);
-            if (player1) player1.score += 0.5;
-            if (player2) player2.score += 0.5;
-            resultString = '1/2-1/2';
-            console.log(`[Tournament ${this.id}] Игра ${gameId} завершилась вничью.`);
+            const p1 = this.players.get(winner.id);
+            const p2 = this.players.get(loser.id);
+            if (p1) p1.score += 0.5;
+            if (p2) p2.score += 0.5;
+            resultText = '½-½';
         } else {
             const winnerInfo = this.players.get(winner.id);
             if (winnerInfo) {
                 winnerInfo.score += 1;
-                resultString = `${winnerInfo.user.username} won`;
-                console.log(`[Tournament ${this.id}] В игре ${gameId} победил ${winner.username}. Очки: ${winnerInfo.score}`);
+                resultText = `1-0 (${winner.username})`;
             }
         }
 
-        // --- ОБНОВЛЕНИЕ ЗАПИСИ О МАТЧЕ В ТЕКУЩЕМ РАУНДЕ ---
-        const currentRoundData = this.rounds.find(r => r.round === this.currentRound);
-        if (currentRoundData) {
-            const matchData = currentRoundData.games.find(g => g.id === gameId);
-            if (matchData) {
-                matchData.result = resultString; // Записываем результат
-            }
+        const roundData = this.rounds.find(r => r.round === this.currentRound);
+        if (roundData) {
+            const match = roundData.games.find(g => g.id === gameId);
+            if (match) match.result = resultText;
         }
 
         this.activeGames.delete(gameId);
-
-        // --- САМЫЙ ВАЖНЫЙ ВЫЗОВ ---
-        console.log(`[Tournament ${this.id}] Отправка обновления состояния после завершения игры ${gameId}.`);
-        this.broadcastStateUpdate(); // Отправляем обновленное состояние ВСЕМ
-
+        this.games.delete(gameId);
+        this.broadcastStateUpdate();
         this._checkRoundCompletion();
     }
 
     _checkRoundCompletion() {
-        console.log(`[Tournament ${this.id}] Проверка завершения раунда. Активных игр: ${this.activeGames.size}`);
-        if (this.state === 'running' && this.activeGames.size === 0) {
-            console.log(`[Tournament ${this.id}] Все игры раунда ${this.currentRound} завершены.`);
+        if (this.status === 'running' && this.activeGames.size === 0) {
             if (this.currentRound >= this.totalRounds) {
                 this.finishTournament();
             } else {
@@ -215,25 +186,33 @@ constructor({ io, games, id, name }) { // <--- ИЗМЕНЕНИЕ ЗДЕСЬ
         }
     }
 
-    finishTournament() {
-        console.log(`[Tournament ${this.id}] Турнир "${this.name}" завершен!`);
-        this.state = 'finished';
+    async finishTournament() {
+        this.status = 'finished';
+        const sortedResults = Array.from(this.players.values()).sort((a, b) => b.score - a.score);
+        const medalColors = ['red', 'blue', 'green', 'yellow', 'white'];
 
-        const sortedPlayers = Array.from(this.players.values()).sort((a, b) => b.score - a.score);
-        const winner = sortedPlayers[0];
+        console.log(`[Tournament ${this.id}] Завершен. Идет выдача наград...`);
 
-        if (winner) {
-            console.log(`[Tournament ${this.id}] Победитель: ${winner.user.username} со счетом ${winner.score}`);
-            this.io.to(this.id).emit('tournament:finished', { winner: winner.user, players: this.getState().players });
-        } else {
-            console.log(`[Tournament ${this.id}] Турнир завершен, но победителя нет.`);
-            this.io.to(this.id).emit('tournament:finished', { winner: null, players: [] });
+        for (let i = 0; i < Math.min(sortedResults.length, 5); i++) {
+            const player = sortedResults[i];
+            const medalColor = medalColors[i];
+
+            try {
+                await addTrophyToUser(player.user.id, {
+                    tournamentName: this.name,
+                    place: i + 1,
+                    color: medalColor
+                });
+                console.log(`[Tournament] Игрок ${player.user.username} занял ${i+1} место.`);
+            } catch (err) {
+                console.error(`[Tournament] Ошибка выдачи медали:`, err);
+            }
         }
 
         this.broadcastStateUpdate();
+        this.io.to(this.id).emit('tournament:finished', this.getState());
     }
 
-    // 4. МЕТОДЫ СОСТОЯНИЯ
     getState() {
         return {
             id: this.id,
@@ -244,8 +223,6 @@ constructor({ io, games, id, name }) { // <--- ИЗМЕНЕНИЕ ЗДЕСЬ
             players: Array.from(this.players.values()).map(p => ({
                 id: p.user.id,
                 username: p.user.username,
-                rating: p.user.rating, // предполагаем, что эти поля есть в user
-                level: p.user.level,
                 score: p.score
             })).sort((a, b) => b.score - a.score),
             rounds: this.rounds
