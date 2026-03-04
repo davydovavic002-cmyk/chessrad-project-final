@@ -3,42 +3,76 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Мой профиль</title>
-    <link rel="stylesheet" href="/css/style.css">
+    <title>Мой профиль - ChessRad</title>
+    <link rel="stylesheet" href="/css/profile.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
 </head>
 <body>
-    <div class="container">
-        <h1>Личный кабинет</h1>
+    <div class="profile-container">
+        <div class="profile-card">
+            <h1>Личный кабинет</h1>
 
-        <!-- Этот блок будет заполнен данными пользователя с помощью JavaScript -->
-        <div id="profile-info">
-            <p>Загрузка данных...</p>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <span class="stat-value" id="wins-count">0</span>
+                    <span class="stat-label">Побед</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value" id="draws-count">0</span>
+                    <span class="stat-label">Ничьих</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value" id="losses-count">0</span>
+                    <span class="stat-label">Поражений</span>
+                </div>
+            </div>
+
+            <div class="info-panel">
+                <p>Имя пользователя: <strong id="display-username">cool</strong></p>
+                <p>Текущий рейтинг: <span id="display-rating" class="rating-badge">500</span></p>
+            </div>
+
+            <div class="info-panel">
+                <h3>Ваш прогресс: <span id="current-rank-text">Новичок</span></h3>
+                <div class="progress-container">
+                    <div id="progress-fill-bar" style="width: 30%;"></div>
+                </div>
+                <p id="points-to-next-text" class="subtitle">До уровня "Любитель" осталось 1000 очков</p>
+            </div>
+
+            <div class="info-panel">
+                <h3>Трофеи за турниры</h3>
+                <div id="trophy-shelf" class="trophy-shelf">
+                    <p id="no-trophies" class="subtitle">Наград пока нет</p>
+                </div>
+            </div>
+
+            <div class="info-panel">
+                <h3>История последних матчей</h3>
+                <div class="table-wrapper">
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th>Противник</th>
+                                <th>Результат</th>
+                                <th>Тип</th>
+                            </tr>
+                        </thead>
+                        <tbody id="game-history-list">
+                            <tr><td colspan="3" class="subtitle">История пуста</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="controls">
+                <a href="/tournament.html" class="btn btn-primary">В турниры</a>
+                <a href="/lobby.html" class="btn btn-secondary">Вернуться в лобби</a>
+                <button id="logout-btn" class="btn btn-danger">Выйти из аккаунта</button>
+            </div>
         </div>
-
-        <!-- Блок для выбора и сохранения уровня мастерства -->
-        <div class="skill-level-section" style="margin-top: 20px; margin-bottom: 20px;">
-            <h3>Уровень мастерства</h3>
-
-<!-- ИСПРАВЛЕННЫЙ БЛОК -->
-<select id="skill-level-select">
-    <option value="Новичок">Новичок</option>
-    <option value="Любитель">Любитель</option>
-    <option value="Опытный">Опытный</option>
-    <option value="Мастер">Мастер</option>
-    <option value="Грандмастер">Грандмастер</option>
-</select>
-
-            <button id="save-skill-btn" class="button" style="margin-left: 10px;">Сохранить</button>
-
-            <span id="skill-save-status" style="margin-left: 15px; color: green;"></span>
-        </div>
-
-        <!-- Кнопки навигации -->
-        <a href="/lobby.html" class="button">Вернуться в лобби</a>
-        <a href="#" id="logout-link-profile" class="button" style="background-color: #d9534f; margin-top: 10px;">Выйти из аккаунта</a>
     </div>
 
-    <!-- Подключаем основной скрипт страницы в конце body -->
     <script src="/js/profile.js"></script>
 </body>
 </html>
