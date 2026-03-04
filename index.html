@@ -3,53 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Вход - Шахматы Онлайн</title>
-    <!-- Убедитесь, что у вас есть файл style.css по этому пути -->
-    <link rel="stylesheet" href="/css/style.css">
+    <title>ChessRad - Вход</title>
+    <link rel="stylesheet" href="/css/auth.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
 </head>
 <body>
-    <!--
-      Контейнер изначально скрыт.
-      JavaScript сделает его видимым после проверки сессии, чтобы избежать "мигания".
-    -->
-    <div class="auth-container" style="visibility: hidden;">
-        <h1>Шахматы Онлайн</h1>
+    <div id="auth-container" class="auth-card" style="display: none;">
+        <h1>ChessRad</h1>
+        <p class="subtitle">Шахматы Онлайн</p>
 
-        <!-- Форма входа (видна по умолчанию) -->
         <div id="login-view">
             <h2>Вход</h2>
             <form id="login-form">
-                <!-- ДОБАВЛЕНО: атрибут name="username" -->
-                <input type="text" id="login-username" name="username" placeholder="Имя пользователя" required>
-                <!-- ДОБАВЛЕНО: атрибут name="password" -->
-                <input type="password" id="login-password" name="password" placeholder="Пароль" required>
-                <button type="submit">Войти</button>
+                <div class="form-group">
+                    <input type="text" id="login-username" name="username" placeholder="Имя пользователя" required>
+                </div>
+                <div class="form-group">
+                    <input type="password" id="login-password" name="password" placeholder="Пароль" required>
+                </div>
+                <button type="submit" class="btn-auth">Войти</button>
             </form>
-            <p>Нет аккаунта? <a href="#" id="show-register">Зарегистрироваться</a></p>
+            <p class="switch-text">Нет аккаунта? <a href="#" id="show-register">Зарегистрироваться</a></p>
         </div>
 
-        <!-- Форма регистрации (скрыта по умолчанию) -->
         <div id="register-view" class="hidden">
             <h2>Регистрация</h2>
             <form id="register-form">
-                <!-- ДОБАВЛЕНО: атрибут name="username" -->
-                <input type="text" id="register-username" name="username" placeholder="Имя пользователя" required>
-                <!-- ДОБАВЛЕНО: атрибуты name="password" и name="confirmPassword" -->
-                <input type="password" id="register-password" name="password" placeholder="Пароль (мин. 4 символа)" minlength="4" required>
-                <input type="password" id="register-confirm-password" name="confirmPassword" placeholder="Подтвердите пароль" required>
-                <button type="submit">Создать аккаунт</button>
+                <div class="form-group">
+                    <input type="text" id="register-username" name="username" placeholder="Имя пользователя" required>
+                </div>
+                <div class="form-group">
+                    <input type="password" id="register-password" name="password" placeholder="Пароль (мин. 4 символа)" minlength="4" required>
+                </div>
+                <div class="form-group">
+                    <input type="password" id="register-confirm-password" name="confirmPassword" placeholder="Подтвердите пароль" required>
+                </div>
+                <button type="submit" class="btn-auth">Создать аккаунт</button>
             </form>
-            <p>Уже есть аккаунт? <a href="#" id="show-login">Войти</a></p>
+            <p class="switch-text">Уже есть аккаунт? <a href="#" id="show-login">Войти</a></p>
         </div>
 
-        <!-- Элемент для отображения ошибок -->
         <p id="error-message" class="error-message hidden"></p>
     </div>
 
-    <!--
-      Подключение скрипта. Путь /js/auth.js предполагает, что у вас есть папка public,
-      а в ней папка js, где и лежит этот файл.
-    -->
     <script src="/js/auth.js"></script>
 </body>
 </html>
