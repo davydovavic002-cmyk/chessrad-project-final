@@ -37,6 +37,7 @@ export const initDb = async () => {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE,
             password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'user',
             wins INTEGER NOT NULL DEFAULT 0,
             losses INTEGER NOT NULL DEFAULT 0,
             draws INTEGER NOT NULL DEFAULT 0,
@@ -59,7 +60,20 @@ export const initDb = async () => {
             FOREIGN KEY(player2_id) REFERENCES users(id)
         );
     `);
-    console.log('[DB] База данных инициализирована (Users + Games History).');
+    // НОВАЯ ТАБЛИЦА: Учебные комнаты
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS study_rooms (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            room_code TEXT UNIQUE NOT NULL,
+            teacher_id INTEGER NOT NULL,
+            student_id INTEGER,
+            fen TEXT DEFAULT 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(teacher_id) REFERENCES users(id),
+            FOREIGN KEY(student_id) REFERENCES users(id)
+        );
+    `);
+    console.log('[DB] База данных инициализирована (Users + Games + Study Rooms).');
 };
 
 export const addUser = async (username, password) => {
@@ -77,13 +91,12 @@ export const findUserByUsername = async (username) => {
     return db.get('SELECT * FROM users WHERE username = ?', username);
 };
 
-// ОБНОВЛЕНО: теперь возвращает пользователя вместе с массивом истории игр
 export const findUserById = async (id) => {
     const db = await getDbConnection();
-    const user = await db.get('SELECT id, username, wins, losses, draws, level, rating, trophies FROM users WHERE id = ?', id);
+    const user = await db.get('SELECT id, username, role, wins, losses, draws, level, rating, trophies FROM users WHERE id = ?', id);
+
     if (!user) return null;
 
-    // Получаем 5 последних игр, где участвовал этот ID
     const history = await db.all(`
         SELECT
             CASE WHEN g.player1_id = ? THEN u2.username ELSE u1.username END as opponent,
@@ -99,12 +112,10 @@ export const findUserById = async (id) => {
     return { ...user, history: history || [] };
 };
 
-// НОВАЯ ФУНКЦИЯ: Запись результата матча в таблицу games
 export const saveGameResult = async (p1_id, p2_id, winner_id, type = 'Обычный') => {
     const db = await getDbConnection();
     const date = new Date().toLocaleDateString('ru-RU');
 
-    // Результат для Player 1
     let res1 = (winner_id === p1_id) ? 'Победа' : (winner_id === null ? 'Ничья' : 'Поражение');
 
     await db.run(
@@ -118,13 +129,12 @@ export const updateUserStats = async (winnerId, loserId, isDraw = false) => {
     try {
         if (isDraw) {
             await db.run('UPDATE users SET draws = draws + 1, rating = rating + 5 WHERE id = ? OR id = ?', [winnerId, loserId]);
-            await saveGameResult(winnerId, loserId, null); // Записываем ничью
+            await saveGameResult(winnerId, loserId, null);
         } else {
             await db.run('UPDATE users SET wins = wins + 1, rating = rating + 15 WHERE id = ?', [winnerId]);
             await db.run('UPDATE users SET losses = losses + 1, rating = MAX(0, rating - 10) WHERE id = ?', [loserId]);
-            await saveGameResult(winnerId, loserId, winnerId); // Записываем победу
+            await saveGameResult(winnerId, loserId, winnerId);
         }
-        // Пересчет уровней
         const players = await db.all('SELECT id, rating FROM users WHERE id IN (?, ?)', [winnerId, loserId]);
         for (const player of players) {
             const newLevelName = getLevelByRating(player.rating);
@@ -146,4 +156,30 @@ export const addTrophyToUser = async (userId, trophy) => {
         await db.run('UPDATE users SET trophies = ? WHERE id = ?', [JSON.stringify(trophies), userId]);
         return true;
     } catch (e) { return false; }
+};
+
+// --- ФУНКЦИИ ДЛЯ ОБУЧЕНИЯ ---
+
+export const createStudyRoom = async (teacherId, roomCode) => {
+    const db = await getDbConnection();
+    await db.run(
+        'INSERT INTO study_rooms (teacher_id, room_code) VALUES (?, ?)',
+        [teacherId, roomCode]
+    );
+    return { teacherId, roomCode };
+};
+
+export const findStudyRoomByCode = async (code) => {
+    const db = await getDbConnection();
+    return await db.get(`
+        SELECT r.*, u.username as teacher_name
+        FROM study_rooms r
+        JOIN users u ON r.teacher_id = u.id
+        WHERE r.room_code = ?
+    `, [code]);
+};
+
+export const joinStudentToRoom = async (roomCode, studentId) => {
+    const db = await getDbConnection();
+    await db.run('UPDATE study_rooms SET student_id = ? WHERE room_code = ?', [studentId, roomCode]);
 };
