@@ -11,7 +11,17 @@ import jwt from 'jsonwebtoken';
 import cookieParser from 'cookie-parser';
 import cookie from 'cookie';
 
-import { initDb, addUser, findUserByUsername, findUserById, updateUserStats } from './db.js';
+// ДОБАВЛЕНО: импорт новых функций для обучения
+import {
+    initDb,
+    addUser,
+    findUserByUsername,
+    findUserById,
+    updateUserStats,
+    createStudyRoom,      // <-- Добавлено
+    findStudyRoomByCode,  // <-- Добавлено
+    joinStudentToRoom     // <-- Добавлено
+} from './db.js';
 import { Game } from './gamelogic.js';
 import { Tournament } from './tournament.js';
 
@@ -144,7 +154,6 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
         const user = await findUserById(req.user.id);
         if (!user) return res.status(404).json({ message: 'Пользователь не найден' });
 
-        // Отправляем всё (wins, losses, trophies, history), кроме пароля
         const { password_hash, ...profileData } = user;
         res.json(profileData);
     } catch (e) {
@@ -152,6 +161,7 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
         res.status(500).json({ message: 'Ошибка сервера при загрузке профиля' });
     }
 });
+
 app.get('/game/:gameId', authenticateToken, (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'tournament-game.html'));
 });
@@ -163,6 +173,53 @@ app.post('/api/logout', (req, res) => {
 
 app.get('/lobby', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'lobby.html'));
+});
+
+app.post('/api/tournament/start', authenticateToken, async (req, res) => {
+    try {
+        const user = await findUserById(req.user.id);
+        if (user.role !== 'admin') {
+            return res.status(403).json({ message: 'Доступ запрещен' });
+        }
+        res.json({ success: true, message: 'Турнир запущен' });
+    } catch (e) {
+        res.status(500).send();
+    }
+});
+
+app.post('/api/study/create', authenticateToken, async (req, res) => {
+    try {
+        const user = await findUserById(req.user.id);
+        if (user.role !== 'teacher' && user.role !== 'admin') {
+            return res.status(403).json({ success: false, message: 'Нужна роль учителя' });
+        }
+
+        const roomCode = 'CH-' + Math.random().toString(36).substring(2, 7).toUpperCase();
+        await createStudyRoom(user.id, roomCode);
+        res.json({ success: true, roomCode });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ success: false, message: 'Ошибка при создании комнаты' });
+    }
+});
+
+app.post('/api/study/join', authenticateToken, async (req, res) => {
+    try {
+        const { roomCode } = req.body;
+        const room = await findStudyRoomByCode(roomCode);
+
+        if (!room) {
+            return res.status(404).json({ success: false, message: 'Комната не найдена' });
+        }
+
+        if (room.teacher_id !== req.user.id) {
+            await joinStudentToRoom(roomCode, req.user.id);
+        }
+
+        res.json({ success: true, roomCode });
+    } catch (e) {
+        res.status(500).json({ success: false, message: 'Ошибка входа в комнату' });
+    }
 });
 
 // ---------------------------------
@@ -182,7 +239,25 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
     onlineUsers.set(socket.user.id, { id: socket.user.id, username: socket.user.username, socket: socket });
 
-    // Поиск игры 1x1
+    // --- ДОБАВЛЕНО: ЛОГИКА УЧЕБНЫХ КОМНАТ ---
+    socket.on('study:join', async ({ roomCode }) => {
+        const room = await findStudyRoomByCode(roomCode);
+        if (room) {
+            socket.join(roomCode);
+            socket.emit('study:roomData', room);
+            console.log(`[Study] User ${socket.user.username} joined room ${roomCode}`);
+        }
+    });
+
+    socket.on('study:move', ({ roomCode, fen, type }) => {
+        socket.to(roomCode).emit('study:syncMove', { fen, type });
+    });
+
+    socket.on('study:modeChange', ({ roomCode, mode }) => {
+        socket.to(roomCode).emit('study:syncMode', mode);
+    });
+    // --- КОНЕЦ ЛОГИКИ ОБУЧЕНИЯ ---
+
     socket.on('findGame', () => {
         const idx = matchmakingQueue.findIndex(s => s.user.id === socket.user.id);
         if (idx !== -1) matchmakingQueue.splice(idx, 1);
@@ -192,7 +267,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Состояние турнира
     socket.on('tournament:getState', (tournamentId) => {
         if (mainTournament && mainTournament.id === tournamentId) {
             socket.emit('tournament:stateUpdate', mainTournament.getState());
@@ -204,11 +278,9 @@ io.on('connection', (socket) => {
         if (!result.success) socket.emit('tournament:error', { message: result.message });
     });
 
-    // НОВАЯ ЛОГИКА: Принудительный выход из турнира
     socket.on('tournament:leave', () => {
         if (mainTournament) {
             mainTournament.removePlayer(socket);
-            console.log(`[Tournament] ${socket.user.username} покинул турнир`);
             io.emit('tournament:stateUpdate', mainTournament.getState());
         }
     });
@@ -249,15 +321,9 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        console.log(`[Disconnect] Пользователь ${socket.user.username} отключился`);
         onlineUsers.delete(socket.user.id);
-
         const qIdx = matchmakingQueue.findIndex(s => s.id === socket.id);
-        if (qIdx !== -1) {
-            matchmakingQueue.splice(qIdx, 1);
-            console.log(`[Matchmaking] ${socket.user.username} удален из очереди`);
-        }
-        // mainTournament.removePlayer(socket) НЕ вызываем здесь, чтобы регистрация не слетала
+        if (qIdx !== -1) matchmakingQueue.splice(qIdx, 1);
     });
 });
 
