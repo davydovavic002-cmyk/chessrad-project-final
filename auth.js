@@ -1,9 +1,7 @@
 // auth.js - Финальная версия под новый дизайн
 document.addEventListener('DOMContentLoaded', () => {
-    // Ищем по ID, как в новом HTML
     const authContainer = document.getElementById('auth-container');
 
-    // Показываем форму (теперь через display, так как в HTML стоит display: none)
     if (authContainer) {
         authContainer.style.display = 'block';
     }
@@ -25,7 +23,6 @@ document.addEventListener('DOMContentLoaded', () => {
         errorMessageEl.classList.add('hidden');
     }
 
-    // Переключение на регистрацию
     showRegisterLink.addEventListener('click', (e) => {
         e.preventDefault();
         loginView.classList.add('hidden');
@@ -33,7 +30,6 @@ document.addEventListener('DOMContentLoaded', () => {
         hideError();
     });
 
-    // Переключение на вход
     showLoginLink.addEventListener('click', (e) => {
         e.preventDefault();
         registerView.classList.add('hidden');
@@ -41,7 +37,6 @@ document.addEventListener('DOMContentLoaded', () => {
         hideError();
     });
 
-    // ЛОГИКА ВХОДА
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         hideError();
@@ -62,7 +57,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error(responseData.message || 'Неверный логин или пароль');
             }
 
-            // Успех! Кука установится сервером автоматически
             window.location.href = '/lobby.html';
 
         } catch (error) {
@@ -70,7 +64,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // ЛОГИКА РЕГИСТРАЦИИ
     registerForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         hideError();
@@ -87,7 +80,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch('/api/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username: data.username, password: data.password })
+                body: JSON.stringify({
+                    username: data.username,
+                    password: data.password,
+                    role: data.role // Отправляем роль на сервер
+                })
             });
 
             const responseData = await response.json();
@@ -97,7 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             alert('Регистрация успешна! Теперь вы можете войти.');
-            showLoginLink.click(); // Автоматически переключаем на форму входа
+            showLoginLink.click();
 
         } catch (error) {
             displayError(error.message);
