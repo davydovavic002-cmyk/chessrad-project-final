@@ -18,9 +18,9 @@
     </header>
 
     <div class="study-grid">
-        <div class="board-container" style="position: relative;">
+        <div class="board-container">
             <div id="myBoard" style="width: 100%"></div>
-            <canvas id="drawing-canvas" style="position: absolute; top: 0; left: 0; pointer-events: none; z-index: 10;"></canvas>
+            <canvas id="drawing-canvas"></canvas>
 
             <div class="controls" id="teacher-tools" style="display: none; margin-top: 15px;">
                 <div style="display: flex; gap: 8px; flex-wrap: wrap;">
@@ -32,6 +32,8 @@
         </div>
 
         <div class="info-panel">
+            <div id="video-chat-container"></div>
+
             <div class="room-info">
                 <h3 style="margin: 0; font-weight: 800;">Комната: <span id="room-id-display" style="color: var(--blue-primary);">---</span></h3>
                 <p id="participant-info" style="font-size: 13px; color: var(--text-muted); margin: 2px 0;">Загрузка участников...</p>
@@ -39,7 +41,8 @@
 
             <div class="mode-tabs">
                 <button class="tab-btn active" id="mode-play">ИГРА</button>
-                <button class="tab-btn" id="mode-edit">РАЗБОР</button>
+                <button class="tab-btn" id="mode-demo">ДЕМО</button>
+                <button class="tab-btn" id="mode-edit" style="display: none;">РЕДАКТОР</button>
             </div>
 
             <div id="status-msg" style="font-size: 12px; font-weight: 700; margin-bottom: 5px; min-height: 18px;"></div>
@@ -50,11 +53,11 @@
                 </div>
 
                 <div id="teacher-controls-block" style="display: none; flex-direction: column; gap: 8px;">
-                    <textarea id="pgn-input" placeholder="PGN или FEN..."
+                    <textarea id="pgn-input" placeholder="Введите FEN или оставьте пустым для ручной расстановки..."
                               style="width: 100%; height: 50px; border: 1px solid #edf2f7; border-radius: 8px; padding: 8px; font-size: 11px; font-family: monospace; resize: none; background: #f8f9fa;"></textarea>
 
                     <div style="display: flex; gap: 6px;">
-                        <button class="btn-primary-sm" id="import-btn" style="flex: 2;">Загрузить</button>
+                        <button class="btn-primary-sm" id="import-btn" style="flex: 2; background: #f39c12;">ОПУБЛИКОВАТЬ В ДЕМО</button>
                         <button class="btn-secondary-icon" id="export-png-btn" title="Скачать PNG" style="flex: 1;">
                             <span>📥</span>
                         </button>
@@ -69,7 +72,6 @@
     <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script src="/js/study.js"></script>
 </body>
