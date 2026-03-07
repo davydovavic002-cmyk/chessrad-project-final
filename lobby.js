@@ -1,8 +1,6 @@
-// lobby.js - Версия для httpOnly Cookies с разделом обучения
+// lobby.js - Версия для httpOnly Cookies с разделом обучения и логами
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // Вместо этого мы сразу пытаемся получить данные профиля.
-    // Если у пользователя есть валидная кука, сервер вернет данные.
     try {
         const response = await fetch('/api/profile', {
             method: 'GET'
@@ -10,15 +8,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (response.ok) {
             const user = await response.json();
+            console.log('Профиль получен успешно:', user); // ЛОГ 1
             setupLobbyUI(user);
         } else {
-            // Если сервер вернул ошибку (например, 401 Unauthorized), значит куки нет или она неверна.
             console.log('Пользователь не авторизован. Перенаправление на страницу входа.');
-            window.location.href = '/'; // Перенаправляем на главную
+            window.location.href = '/';
         }
     } catch (error) {
         console.error('Сетевая ошибка при получении профиля:', error);
-        window.location.href = '/'; // На случай если сервер вообще не отвечает
+        window.location.href = '/';
     }
 });
 
@@ -30,7 +28,7 @@ function setupLobbyUI(user) {
     const lobbyContainer = document.querySelector('.lobby-container');
 
     if (!userStatusDiv || !profileBtn || !tournamentsBtn || !findGameBtn) {
-        console.error('Не все элементы интерфейса лобби найдены!');
+        console.error('КРИТИЧЕСКАЯ ОШИБКА: Не все элементы интерфейса лобби найдены в HTML!'); // ЛОГ 2
         return;
     }
 
@@ -43,23 +41,20 @@ function setupLobbyUI(user) {
         <button id="logout-btn" style="margin-left: 15px;">Выйти</button>
     `;
 
-    profileBtn.disabled = false;
-    profileBtn.addEventListener('click', () => { window.location.href = 'profile.html'; });
+    profileBtn.onclick = () => { window.location.href = 'profile.html'; };
+    findGameBtn.onclick = () => { window.location.href = 'game.html'; };
+    tournamentsBtn.onclick = () => { window.location.href = 'tournament.html'; };
 
-    findGameBtn.disabled = false;
-    findGameBtn.addEventListener('click', () => { window.location.href = 'game.html'; });
-
-    tournamentsBtn.disabled = false;
-    tournamentsBtn.addEventListener('click', () => { window.location.href = 'tournament.html'; });
-
-
-    // --- НОВЫЙ БЛОК: РАЗДЕЛ ОБУЧЕНИЯ ---
+    // --- РАЗДЕЛ ОБУЧЕНИЯ (С КНОПКОЙ ВОЙТИ) ---
     const studyControls = document.getElementById('study-controls');
+
     if (studyControls) {
+        console.log('Контейнер study-controls найден. Роль пользователя:', user.role); // ЛОГ 3
+
         if (user.role === 'admin' || user.role === 'teacher') {
-            // Интерфейс для учителя/админа: Карточка создания
+            console.log('Отрисовка интерфейса УЧИТЕЛЯ'); // ЛОГ 4
             studyControls.innerHTML = `
-                <div class="menu-card primary study-card" id="btn-create-study">
+                <div class="menu-card primary study-card" id="btn-create-study" style="cursor: pointer; padding: 15px;">
                     <div class="card-icon">👨‍🏫</div>
                     <div class="card-text">
                         <h3>Учебный класс</h3>
@@ -72,24 +67,24 @@ function setupLobbyUI(user) {
                 const res = await fetch('/api/study/create', { method: 'POST' });
                 const data = await res.json();
                 if (data.success) {
-                    alert('Комната создана! Код: ' + data.roomCode);
+                    alert(`КОМНАТА СОЗДАНА!\n\nКод для ученика: ${data.roomCode}\n\nНажми ОК, чтобы войти в класс.`);
                     window.location.href = `study.html?room=${data.roomCode}`;
                 } else {
                     alert('Ошибка: ' + data.message);
                 }
             };
         } else {
-            // Интерфейс для ученика: Карточка входа с полем ввода
+            console.log('Отрисовка интерфейса УЧЕНИКА'); // ЛОГ 5
             studyControls.innerHTML = `
-                <div class="menu-card study-card" style="cursor: default;">
+                <div class="menu-card study-card" style="cursor: default; padding: 15px; min-height: auto;">
                     <div class="card-icon">🎓</div>
-                    <div class="card-text">
+                    <div class="card-text" style="width: 100%;">
                         <h3>Вход на обучение</h3>
-                        <div style="display: flex; gap: 10px; margin-top: 8px;">
-                            <input type="text" id="study-code-input" placeholder="Код (напр. CH-A1B2)"
-                                style="padding: 8px; border: 1px solid #ddd; border-radius: 6px; flex: 1; font-family: 'Inter';">
+                        <div style="display: flex; flex-direction: row; flex-wrap: nowrap; gap: 8px; margin-top: 10px; align-items: center;">
+                            <input type="text" id="study-code-input" placeholder="Код комнаты"
+                                style="padding: 10px; border: 1px solid #ddd; border-radius: 6px; width: 180px; flex: none; font-family: 'Inter'; color: #333;">
                             <button id="btn-join-study"
-                                style="padding: 8px 15px; background: var(--blue-primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                                style="display: block !important; padding: 10px 15px; background: #2ecc71; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; white-space: nowrap; flex-shrink: 0;">
                                 Войти
                             </button>
                         </div>
@@ -97,60 +92,51 @@ function setupLobbyUI(user) {
                 </div>
             `;
 
-            document.getElementById('btn-join-study').onclick = async () => {
-                const roomCode = document.getElementById('study-code-input').value.trim();
-                if (!roomCode) return alert('Введите код!');
+            const inputEl = document.getElementById('study-code-input');
+            const joinBtn = document.getElementById('btn-join-study');
 
-                const res = await fetch('/api/study/join', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ roomCode })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    window.location.href = `study.html?room=${data.roomCode}`;
-                } else {
-                    alert(data.message);
+            const handleJoin = async () => {
+                const roomCode = inputEl.value.trim().toUpperCase();
+                if (!roomCode) return alert('Введите код!');
+                try {
+                    const res = await fetch('/api/study/join', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ roomCode })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        window.location.href = `study.html?room=${data.roomCode}`;
+                    } else {
+                        alert(data.message);
+                    }
+                } catch (err) {
+                    alert('Ошибка сети');
                 }
             };
+
+            joinBtn.onclick = handleJoin;
+            inputEl.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleJoin(); });
+            joinBtn.onmouseover = () => joinBtn.style.background = '#27ae60';
+            joinBtn.onmouseout = () => joinBtn.style.background = '#2ecc71';
         }
+    } else {
+        console.error('ОШИБКА: Элемент с id="study-controls" не найден на странице!'); // ЛОГ 6
     }
-    // --- КОНЕЦ БЛОКА ОБУЧЕНИЯ ---
 
     document.getElementById('logout-btn').addEventListener('click', async () => {
-        if (window.socket) {
-            window.socket.disconnect();
-        }
-
-        // Отправляем запрос на сервер, чтобы он удалил httpOnly куку
+        if (window.socket) window.socket.disconnect();
         await fetch('/api/logout', { method: 'POST' });
-
-        // После этого перенаправляем на страницу входа
         window.location.href = '/';
     });
 
-    console.log(`Интерфейс лобби успешно настроен для ${user.username}`);
-
-    // Подключение к WebSocket
     connectWebSocket();
 }
 
 function connectWebSocket() {
-    console.log('Клиент: Попытка подключения к WebSocket...');
-
-    // При установке соединения браузер АВТОМАТИЧЕСКИ прикрепит httpOnly куку.
-    window.socket = io("http://147.45.147.30:3000", {
-      withCredentials: true
-    });
-
-    window.socket.on('connect', () => {
-        console.log('Клиент: Успешно подключен к WebSocket серверу! ID:', window.socket.id);
-    });
-
+    window.socket = io("http://147.45.147.30:3000", { withCredentials: true });
+    window.socket.on('connect', () => { console.log('WebSocket подключен'); });
     window.socket.on('connect_error', (err) => {
-        console.error('Клиент: Ошибка подключения к WebSocket -', err.message);
-        if (err.message.includes("Authentication error")) {
-            window.location.href = '/';
-        }
+        if (err.message.includes("Authentication error")) window.location.href = '/';
     });
 }
