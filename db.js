@@ -76,12 +76,12 @@ export const initDb = async () => {
     console.log('[DB] База данных инициализирована (Users + Games + Study Rooms).');
 };
 
-export const addUser = async (username, password) => {
+export const addUser = async (username, password, role = 'student') => {
     const db = await getDbConnection();
     const password_hash = await bcrypt.hash(password, 10);
     const result = await db.run(
-        'INSERT INTO users (username, password_hash) VALUES (?, ?)',
-        [username, password_hash]
+        'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
+        [username, password_hash, role]
     );
     return result.lastID;
 };
