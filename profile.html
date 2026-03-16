@@ -6,8 +6,52 @@
     <title>Мой профиль - ChessRad</title>
     <link rel="stylesheet" href="/css/profile.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        /* Стили для модального окна принудительной смены пароля */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background: #1a1a1a;
+            padding: 30px;
+            border-radius: 12px;
+            max-width: 400px;
+            width: 90%;
+            text-align: center;
+            border: 1px solid #333;
+        }
+        .modal-content h2 { color: #fff; margin-bottom: 15px; }
+        .modal-content input {
+            width: 100%;
+            padding: 12px;
+            margin: 10px 0;
+            background: #222;
+            border: 1px solid #444;
+            color: #fff;
+            border-radius: 6px;
+        }
+        .password-section { margin-top: 20px; border-top: 1px solid #333; padding-top: 20px; }
+        .status-msg { margin-top: 10px; font-size: 0.9em; }
+        .success { color: #4caf50; }
+        .error { color: #f44336; }
+    </style>
 </head>
 <body>
+    <div id="must-change-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <h2>Безопасность</h2>
+            <p class="subtitle">Администратор сбросил ваш пароль. Пожалуйста, установите новый для продолжения.</p>
+            <input type="password" id="force-old-pass" placeholder="Временный пароль">
+            <input type="password" id="force-new-pass" placeholder="Новый пароль (мин. 6 симв.)">
+            <button onclick="changePassword(true)" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Обновить и войти</button>
+            <div id="force-msg" class="status-msg"></div>
+        </div>
+    </div>
+
     <div class="profile-container">
         <div class="profile-card">
             <h1>Личный кабинет</h1>
@@ -28,16 +72,16 @@
             </div>
 
             <div class="info-panel">
-                <p>Имя пользователя: <strong id="display-username">cool</strong></p>
-                <p>Текущий рейтинг: <span id="display-rating" class="rating-badge">500</span></p>
+                <p>Имя пользователя: <strong id="display-username">...</strong></p>
+                <p>Текущий рейтинг: <span id="display-rating" class="rating-badge">0</span></p>
             </div>
 
             <div class="info-panel">
-                <h3>Ваш прогресс: <span id="current-rank-text">Новичок</span></h3>
+                <h3>Ваш прогресс: <span id="current-rank-text">Загрузка...</span></h3>
                 <div class="progress-container">
-                    <div id="progress-fill-bar" style="width: 30%;"></div>
+                    <div id="progress-fill-bar" style="width: 0%;"></div>
                 </div>
-                <p id="points-to-next-text" class="subtitle">До уровня "Любитель" осталось 1000 очков</p>
+                <p id="points-to-next-text" class="subtitle">Рассчитываем очки...</p>
             </div>
 
             <div class="info-panel">
@@ -65,6 +109,23 @@
                 </div>
             </div>
 
+            <div id="teacher-rooms-panel" class="info-panel" style="display: none;">
+                <h3>Мои учебные комнаты (<span id="rooms-count-label">0</span>/5)</h3>
+                <div id="my-rooms-list" class="rooms-list-container">
+                    <p class="subtitle">Загрузка комнат...</p>
+                </div>
+            </div>
+
+            <div class="info-panel password-section">
+                <h3>Безопасность</h3>
+                <div style="max-width: 300px;">
+                    <input type="password" id="profile-old-pass" placeholder="Текущий пароль" style="width: 100%; margin-bottom: 8px; padding: 8px; background: #222; border: 1px solid #444; color: #fff; border-radius: 4px;">
+                    <input type="password" id="profile-new-pass" placeholder="Новый пароль" style="width: 100%; margin-bottom: 8px; padding: 8px; background: #222; border: 1px solid #444; color: #fff; border-radius: 4px;">
+                    <button onclick="changePassword(false)" class="btn btn-secondary" style="font-size: 0.8em; padding: 8px 15px;">Сменить пароль</button>
+                    <div id="profile-pass-msg" class="status-msg"></div>
+                </div>
+            </div>
+
             <div class="controls">
                 <a href="/tournament.html" class="btn btn-primary">В турниры</a>
                 <a href="/lobby.html" class="btn btn-secondary">Вернуться в лобби</a>
@@ -73,6 +134,64 @@
         </div>
     </div>
 
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="/js/profile.js"></script>
+    <script>
+        // Логика смены пароля (можно оставить здесь или вынести в profile.js)
+        async function changePassword(isForce) {
+            const oldInput = document.getElementById(isForce ? 'force-old-pass' : 'profile-old-pass');
+            const newInput = document.getElementById(isForce ? 'force-new-pass' : 'profile-new-pass');
+            const msgDiv = document.getElementById(isForce ? 'force-msg' : 'profile-pass-msg');
+
+            const oldPassword = oldInput.value;
+            const newPassword = newInput.value;
+
+            if (newPassword.length < 6) {
+                msgDiv.textContent = "Минимум 6 символов";
+                msgDiv.className = "status-msg error";
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/profile/change-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ oldPassword, newPassword })
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    msgDiv.textContent = "Пароль успешно обновлен!";
+                    msgDiv.className = "status-msg success";
+                    if (isForce) {
+                        setTimeout(() => location.reload(), 1500);
+                    } else {
+                        oldInput.value = "";
+                        newInput.value = "";
+                    }
+                } else {
+                    msgDiv.textContent = data.message || "Ошибка";
+                    msgDiv.className = "status-msg error";
+                }
+            } catch (err) {
+                msgDiv.textContent = "Ошибка соединения";
+                msgDiv.className = "status-msg error";
+            }
+        }
+
+        // Проверка флага принудительной смены при загрузке (интеграция с твоим профилем)
+        window.addEventListener('load', () => {
+            const checkMustChange = setInterval(() => {
+                // Ждем, пока основные данные профиля загрузятся через profile.js
+                if (window.userData) {
+                    if (window.userData.must_change_password === 1) {
+                        document.getElementById('must-change-modal').style.display = 'flex';
+                    }
+                    clearInterval(checkMustChange);
+                }
+            }, 100);
+        });
+    </script>
 </body>
 </html>
