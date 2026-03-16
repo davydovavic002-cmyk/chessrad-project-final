@@ -20,13 +20,28 @@ $(document).ready(async function() {
     const game = new Chess();
     let myColor = 'w';
     let isGameOver = false;
+    let pendingMove = null;
 
     const $status = $('#status');
     const $turnInfo = $('#turn-info');
     const $pgn = $('#pgn');
     const $fen = $('#fen');
 
-    // Форматирование секунд в 00:00
+    // --- ДОБАВЛЕНИЕ МОДАЛЬНОГО ОКНА ПРЕВРАЩЕНИЯ ---
+    if (!$('#promotion-modal').length) {
+        $('body').append(`
+            <div id="promotion-modal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #2c3e50; padding: 20px; border-radius: 10px; box-shadow: 0 0 20px rgba(0,0,0,0.8); z-index: 10000; text-align: center; border: 2px solid #3498db;">
+                <h3 style="color: white; margin-bottom: 15px; font-family: sans-serif;">Выберите фигуру</h3>
+                <div style="display: flex; gap: 15px; justify-content: center;">
+                    <button class="promo-choice" data-piece="q" style="width: 60px; height: 60px; font-size: 40px; cursor: pointer; background: #ecf0f1; border-radius: 5px; border: none;">♕</button>
+                    <button class="promo-choice" data-piece="r" style="width: 60px; height: 60px; font-size: 40px; cursor: pointer; background: #ecf0f1; border-radius: 5px; border: none;">♖</button>
+                    <button class="promo-choice" data-piece="b" style="width: 60px; height: 60px; font-size: 40px; cursor: pointer; background: #ecf0f1; border-radius: 5px; border: none;">♗</button>
+                    <button class="promo-choice" data-piece="n" style="width: 60px; height: 60px; font-size: 40px; cursor: pointer; background: #ecf0f1; border-radius: 5px; border: none;">♘</button>
+                </div>
+            </div>
+        `);
+    }
+
     function formatTime(seconds) {
         const mins = Math.floor(seconds / 60);
         const secs = seconds % 60;
@@ -45,27 +60,40 @@ $(document).ready(async function() {
     }
 
     function onDrop(source, target) {
-        const moveData = {
-            from: source,
-            to: target,
-            promotion: 'q'
-        };
+        const moveData = { from: source, to: target, promotion: 'q' };
+        const piece = game.get(source);
+        const isPawn = piece && piece.type === 'p';
+        const isPromotionRank = (target[1] === '8' || target[1] === '1');
+
+        if (isPawn && isPromotionRank) {
+            const tempGame = new Chess(game.fen());
+            if (tempGame.move(moveData) === null) return 'snapback';
+            pendingMove = moveData;
+            $('#promotion-modal').fadeIn(200);
+            return 'snapback';
+        }
 
         const move = game.move(moveData);
         if (move === null) return 'snapback';
 
-        // Отправляем на сервер
-        socket.emit('tournament:game:move', {
-            gameId: gameId,
-            move: moveData
-        });
-
+        socket.emit('tournament:game:move', { gameId, move: moveData });
         updateGameDisplay();
     }
 
-    function onSnapEnd() {
-        board.position(game.fen());
-    }
+    $(document).on('click', '.promo-choice', function() {
+        const pieceType = $(this).data('piece');
+        if (pendingMove) {
+            pendingMove.promotion = pieceType;
+            game.move(pendingMove);
+            board.position(game.fen());
+            socket.emit('tournament:game:move', { gameId, move: pendingMove });
+            pendingMove = null;
+            $('#promotion-modal').fadeOut(200);
+            updateGameDisplay();
+        }
+    });
+
+    function onSnapEnd() { board.position(game.fen()); }
 
     // --- 5. SOCKET.IO ---
     const socket = io({ transports: ['websocket'] });
@@ -74,48 +102,25 @@ $(document).ready(async function() {
         socket.emit('tournament:game:join', { gameId });
     });
 
-    // Обновление таймеров (используем прямые селекторы, так как HTML динамический)
     socket.on('game:timer', (data) => {
         if (isGameOver) return;
-
-        const wStr = formatTime(data.white);
-        const bStr = formatTime(data.black);
-
-        // Находим элементы в DOM каждый раз (безопасно для динамического HTML)
-        const $wt = $('#white-timer');
-        const $bt = $('#black-timer');
-
-        $wt.text(wStr);
-        $bt.text(bStr);
-
-        // Подсветка активного таймера
-        $wt.toggleClass('active-timer', data.turn === 'w');
-        $bt.toggleClass('active-timer', data.turn === 'b');
-
-        // Критическое время
-        $wt.toggleClass('low-time', data.white < 30);
-        $bt.toggleClass('low-time', data.black < 30);
+        const $wt = $('#white-timer'), $bt = $('#black-timer');
+        $wt.text(formatTime(data.white)).toggleClass('active-timer', data.turn === 'w');
+        $bt.text(formatTime(data.black)).toggleClass('active-timer', data.turn === 'b');
     });
 
     socket.on('game:state', (data) => {
         myColor = data.color;
         game.load(data.fen);
-
-        // Установка имен и начального состояния
         const whiteName = data.playerWhite?.username || 'Белые';
         const blackName = data.playerBlack?.username || 'Черные';
 
-        // Распределяем кто сверху, кто снизу (Противник всегда сверху)
         if (myColor === 'w') {
             $('#opponent-info .player-name').text(blackName + ' (Черные)');
-            $('#opponent-timer').attr('id', 'black-timer');
             $('#me-info .player-name').text(currentUser.username + ' (Вы)');
-            $('#me-timer').attr('id', 'white-timer');
         } else {
             $('#opponent-info .player-name').text(whiteName + ' (Белые)');
-            $('#opponent-timer').attr('id', 'white-timer');
             $('#me-info .player-name').text(currentUser.username + ' (Вы)');
-            $('#me-timer').attr('id', 'black-timer');
         }
 
         if (!board) {
@@ -124,9 +129,7 @@ $(document).ready(async function() {
                 position: data.fen,
                 orientation: myColor === 'w' ? 'white' : 'black',
                 pieceTheme: '/img/chesspieces/wikipedia/{piece}.png',
-                onDragStart: onDragStart,
-                onDrop: onDrop,
-                onSnapEnd: onSnapEnd
+                onDragStart, onDrop, onSnapEnd
             });
         } else {
             board.position(data.fen);
@@ -144,32 +147,37 @@ $(document).ready(async function() {
         isGameOver = true;
         const isWinner = data.winner === currentUser.username;
         const resultText = data.draw ? 'НИЧЬЯ' : (isWinner ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ');
-
         $status.html(`<b class="${isWinner ? 'win' : 'loss'}">${resultText}</b>: ${data.reason}`);
 
-        setTimeout(() => {
-            alert(`Игра окончена: ${resultText}\nПричина: ${data.reason}`);
+        Swal.fire({
+            title: resultText,
+            text: `Причина: ${data.reason}`,
+            icon: data.draw ? 'info' : (isWinner ? 'success' : 'error'),
+            confirmButtonText: 'К турниру',
+            confirmButtonColor: '#3498db'
+        }).then(() => {
             window.location.href = '/tournament.html';
-        }, 1500);
+        });
     });
 
-    // --- 6. UI ---
     function updateGameDisplay() {
         const myTurn = game.turn() === myColor;
-        $turnInfo.text(myTurn ? 'ВАШ ХОД' : 'ХОД СОПЕРНИКА');
-        $turnInfo.toggleClass('active-turn', myTurn);
-        $turnInfo.toggleClass('waiting-turn', !myTurn);
-
+        $turnInfo.text(myTurn ? 'ВАШ ХОД' : 'ХОД СОПЕРНИКА').toggleClass('active-turn', myTurn);
         $status.text(game.in_check() ? 'ШАХ!' : 'Игра продолжается');
         $pgn.text(game.pgn());
         $fen.text(game.fen());
     }
 
-    $('#resign-btn').click(() => {
-        if (confirm('Сдаться?')) socket.emit('tournament:game:resign', { gameId });
+    $('#resign-btn').click(async () => {
+        const res = await Swal.fire({
+            title: 'Сдаться?',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Да',
+            cancelButtonText: 'Нет'
+        });
+        if (res.isConfirmed) socket.emit('tournament:game:resign', { gameId });
     });
 
-    $('#return-to-tournament-btn').click(() => {
-        window.location.href = '/tournament.html';
-    });
+    $('#return-to-tournament-btn').click(() => { window.location.href = '/tournament.html'; });
 });
