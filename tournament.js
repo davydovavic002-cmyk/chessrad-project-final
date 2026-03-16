@@ -35,6 +35,7 @@ export class Tournament {
             const playerInfo = this.players.get(user.id);
             playerInfo.socketId = socket.id;
             socket.join(this.id);
+            console.log(`[Tournament] Пользователь ${user.username} вернулся в лобби.`);
             this.broadcastStateUpdate();
             return { success: true, message: 'Вы снова в лобби турнира.' };
         } else {
@@ -46,6 +47,7 @@ export class Tournament {
             };
             this.players.set(user.id, playerInfo);
             socket.join(this.id);
+            console.log(`[Tournament] Новый участник: ${user.username} (ID: ${user.id})`);
             this.broadcastStateUpdate();
             return { success: true, message: 'Вы успешно зарегистрированы.' };
         }
@@ -58,12 +60,14 @@ export class Tournament {
         if (this.status === 'waiting' && this.players.has(userId)) {
             this.players.delete(userId);
             socket.leave(this.id);
+            console.log(`[Tournament] Пользователь ${socket.user.username} покинул турнир.`);
             this.broadcastStateUpdate();
         }
     }
 
     start() {
         if (this.status !== 'waiting' || this.players.size < 2) {
+            console.log(`[Tournament] Ошибка запуска: недостаточно игроков (${this.players.size})`);
             return false;
         }
 
@@ -71,7 +75,7 @@ export class Tournament {
         const playerCount = this.players.size;
         this.totalRounds = Math.max(2, Math.ceil(Math.log2(playerCount)));
 
-        console.log(`[Tournament ${this.id}] Запуск. Раундов: ${this.totalRounds}`);
+        console.log(`[Tournament ${this.id}] СТАРТ. Игроков: ${playerCount}, Раундов: ${this.totalRounds}`);
         this.startNextRound();
         return true;
     }
@@ -81,6 +85,7 @@ export class Tournament {
 
         this.currentRound++;
         this.activeGames.clear();
+        console.log(`[Tournament] --- Начало раунда №${this.currentRound} ---`);
 
         const currentRoundMatchups = [];
         const playersInThisRound = new Set();
@@ -101,10 +106,11 @@ export class Tournament {
                 playersInThisRound.add(player.user.id);
                 playersInThisRound.add(opponent.user.id);
                 currentRoundMatchups.push({ id: gameId, players: [player.user.id, opponent.user.id], result: null });
+                console.log(`[Tournament] Пара создана: ${player.user.username} vs ${opponent.user.username}`);
             } else {
                 player.score += 1;
                 playersInThisRound.add(player.user.id);
-                console.log(`[Tournament] Игрок ${player.user.username} получает "Bye" (1 очко)`);
+                console.log(`[Tournament] Игрок ${player.user.username} получает "Bye" (авто-очко)`);
             }
         }
 
@@ -126,12 +132,11 @@ export class Tournament {
             playerBlack: black.user,
             io: this.io,
             tournament: this,
-            timeLimit: this.GAME_TIME_LIMIT // ПЕРЕДАЕМ ВРЕМЯ
+            timeLimit: this.GAME_TIME_LIMIT
         });
 
         this.games.set(newGame.gameId, newGame);
 
-        // Уведомляем игроков и передаем время для фронтенда
         this.io.to(white.socketId).emit('tournament:gameCreated', {
             gameId: newGame.gameId,
             color: 'w',
@@ -156,11 +161,13 @@ export class Tournament {
             if (p1) p1.score += 0.5;
             if (p2) p2.score += 0.5;
             resultText = '½-½';
+            console.log(`[Tournament] Матч ${gameId} завершен вничью.`);
         } else {
             const winnerInfo = this.players.get(winner.id);
             if (winnerInfo) {
                 winnerInfo.score += 1;
                 resultText = `1-0 (${winner.username})`;
+                console.log(`[Tournament] Матч ${gameId} завершен. Победитель: ${winner.username}`);
             }
         }
 
@@ -178,9 +185,11 @@ export class Tournament {
 
     _checkRoundCompletion() {
         if (this.status === 'running' && this.activeGames.size === 0) {
+            console.log(`[Tournament] Раунд ${this.currentRound} завершен.`);
             if (this.currentRound >= this.totalRounds) {
                 this.finishTournament();
             } else {
+                console.log(`[Tournament] Следующий раунд через 5 секунд...`);
                 setTimeout(() => this.startNextRound(), 5000);
             }
         }
@@ -191,7 +200,7 @@ export class Tournament {
         const sortedResults = Array.from(this.players.values()).sort((a, b) => b.score - a.score);
         const medalColors = ['red', 'blue', 'green', 'yellow', 'white'];
 
-        console.log(`[Tournament ${this.id}] Завершен. Идет выдача наград...`);
+        console.log(`[Tournament ${this.id}] ТУРНИР ЗАВЕРШЕН. Распределение наград...`);
 
         for (let i = 0; i < Math.min(sortedResults.length, 5); i++) {
             const player = sortedResults[i];
@@ -203,9 +212,9 @@ export class Tournament {
                     place: i + 1,
                     color: medalColor
                 });
-                console.log(`[Tournament] Игрок ${player.user.username} занял ${i+1} место.`);
+                console.log(`[Tournament] Награда вручена: ${player.user.username} за ${i+1} место.`);
             } catch (err) {
-                console.error(`[Tournament] Ошибка выдачи медали:`, err);
+                console.error(`[Tournament] Ошибка сохранения награды для ${player.user.username}:`, err);
             }
         }
 
