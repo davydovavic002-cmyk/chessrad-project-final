@@ -7,6 +7,19 @@
     <link rel="stylesheet" href="/css/style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     <script src="/socket.io/socket.io.js"></script>
+    <style>
+        .win-streak-badge {
+            background: #2c2c2c;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.9em;
+            margin-left: 10px;
+        }
+        .streak-active {
+            color: #ff4500;
+            border: 1px solid #ff4500;
+        }
+    </style>
 </head>
 <body>
 
@@ -16,7 +29,8 @@
                 <h1>ChessRad</h1>
                 <span class="badge">Online</span>
             </div>
-            <div id="user-status" class="user-info"></div>
+            <div id="user-status" class="user-info">
+                </div>
         </header>
 
         <main class="lobby-content">
@@ -47,6 +61,8 @@
                         <p>Битва за звание чемпиона</p>
                     </div>
                 </div>
+
+                <div id="admin-card-container"></div>
             </div>
 
             <div class="lobby-section study-section">
@@ -60,6 +76,7 @@
         </main>
     </div>
 
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="/js/lobby.js"></script>
 </body>
 </html>
