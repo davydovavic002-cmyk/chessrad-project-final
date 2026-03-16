@@ -23,7 +23,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // --- 2. ПОДКЛЮЧЕНИЕ WEBSOCKET ---
-    const socket = io({ transports: ['websocket'] });
+    const socket = io({
+        withCredentials: true,
+        transports: ['polling', 'websocket']
+    });
 
     // --- 3. ПОЛУЧЕНИЕ ЭЛЕМЕНТОВ ---
     const registerBtn = document.getElementById('registerBtn');
@@ -34,13 +37,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const pairingsTableBody = document.querySelector('#pairingstable tbody');
     const standingsTableBody = document.querySelector('#standingstable tbody');
 
-    // Создаем кнопку "Покинуть турнир" динамически
+    // Кнопка "Покинуть турнир"
     const leaveBtn = document.createElement('button');
     leaveBtn.textContent = 'Покинуть турнир';
     leaveBtn.className = 'btn-danger';
     leaveBtn.style.display = 'none';
     if (registerBtn) registerBtn.after(leaveBtn);
 
+    // Кнопка "Запустить турнир"
     const startBtn = document.createElement('button');
     startBtn.textContent = 'Запустить турнир';
     startBtn.className = 'btn-secondary';
@@ -52,14 +56,36 @@ document.addEventListener('DOMContentLoaded', async () => {
         socket.emit('tournament:register');
     });
 
-    leaveBtn.addEventListener('click', () => {
-        if (confirm('Вы уверены, что хотите покинуть турнир?')) {
+    leaveBtn.addEventListener('click', async () => {
+        const result = await Swal.fire({
+            title: 'Вы уверены?',
+            text: "Вы хотите покинуть турнир?",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#e74c3c',
+            cancelButtonColor: '#95a5a6',
+            confirmButtonText: 'Да, покинуть',
+            cancelButtonText: 'Отмена'
+        });
+
+        if (result.isConfirmed) {
             socket.emit('tournament:leave');
         }
     });
 
-    startBtn.addEventListener('click', () => {
-        if (confirm('Начать турнир прямо сейчас?')) {
+    startBtn.addEventListener('click', async () => {
+        const result = await Swal.fire({
+            title: 'Начать турнир?',
+            text: "Регистрация будет закрыта, и начнутся первые игры.",
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#2ecc71',
+            cancelButtonColor: '#95a5a6',
+            confirmButtonText: 'Запустить!',
+            cancelButtonText: 'Еще подождем'
+        });
+
+        if (result.isConfirmed) {
             socket.emit('tournament:start');
         }
     });
@@ -80,25 +106,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         playerCountEl.textContent = `(${players.length})`;
         playerListEl.innerHTML = players.map(p => `<li>${p.username}</li>`).join('');
 
-        // ПРОВЕРКА РЕГИСТРАЦИИ
         const isRegistered = players.some(p => String(p.id) === String(user.id));
 
         if (state.status === 'waiting') {
-            startBtn.style.display = 'inline-block';
+            // ПРОВЕРКА РОЛИ АДМИНА
+            if (user && user.role === 'admin') {
+                startBtn.style.display = 'inline-block';
+            } else {
+                startBtn.style.display = 'none';
+            }
 
             if (isRegistered) {
-                // Если зарегистрирован: прячем "Регистрацию", показываем "Покинуть"
                 registerBtn.style.display = 'none';
                 leaveBtn.style.display = 'inline-block';
             } else {
-                // Если не зарегистрирован: показываем "Регистрацию", прячем "Покинуть"
                 registerBtn.style.display = 'inline-block';
                 registerBtn.disabled = false;
                 registerBtn.textContent = 'Зарегистрироваться';
                 leaveBtn.style.display = 'none';
             }
         } else {
-            // Если турнир уже запущен или завершен
             registerBtn.style.display = 'none';
             leaveBtn.style.display = 'none';
             startBtn.style.display = 'none';
@@ -112,7 +139,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (data.gameId) window.location.href = `/game/${data.gameId}`;
     });
 
-    socket.on('tournament:error', (data) => alert(data.message));
+    socket.on('tournament:error', (data) => {
+        Swal.fire({
+            icon: 'error',
+            title: 'Ошибка турнира',
+            text: data.message,
+            confirmButtonColor: '#e74c3c'
+        });
+    });
 
     // --- 6. ФУНКЦИИ ВЫВОДА ---
 
