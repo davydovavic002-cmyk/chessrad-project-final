@@ -1,10 +1,6 @@
-// auth.js - Финальная версия под новый дизайн
 document.addEventListener('DOMContentLoaded', () => {
     const authContainer = document.getElementById('auth-container');
-
-    if (authContainer) {
-        authContainer.style.display = 'block';
-    }
+    if (authContainer) { authContainer.style.display = 'block'; }
 
     const loginView = document.getElementById('login-view');
     const registerView = document.getElementById('register-view');
@@ -12,35 +8,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const showLoginLink = document.getElementById('show-login');
     const loginForm = document.getElementById('login-form');
     const registerForm = document.getElementById('register-form');
-    const errorMessageEl = document.getElementById('error-message');
 
-    function displayError(message) {
-        errorMessageEl.textContent = message;
-        errorMessageEl.classList.remove('hidden');
-    }
-
-    function hideError() {
-        errorMessageEl.classList.add('hidden');
-    }
-
+    // Переключение между формами
     showRegisterLink.addEventListener('click', (e) => {
         e.preventDefault();
         loginView.classList.add('hidden');
         registerView.classList.remove('hidden');
-        hideError();
     });
 
     showLoginLink.addEventListener('click', (e) => {
         e.preventDefault();
         registerView.classList.add('hidden');
         loginView.classList.remove('hidden');
-        hideError();
     });
 
+    // Вход
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        hideError();
-
         const formData = new FormData(loginForm);
         const data = Object.fromEntries(formData.entries());
 
@@ -48,7 +32,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch('/api/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
+                body: JSON.stringify(data),
+                credentials: 'include'
             });
 
             const responseData = await response.json();
@@ -58,21 +43,19 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             window.location.href = '/lobby.html';
-
         } catch (error) {
-            displayError(error.message);
+            Swal.fire({ icon: 'error', title: 'Ошибка входа', text: error.message, confirmButtonColor: '#e74c3c' });
         }
     });
 
+    // Регистрация
     registerForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        hideError();
-
         const formData = new FormData(registerForm);
         const data = Object.fromEntries(formData.entries());
 
         if (data.password !== data.confirmPassword) {
-            displayError('Пароли не совпадают');
+            Swal.fire({ icon: 'warning', title: 'Внимание', text: 'Пароли не совпадают' });
             return;
         }
 
@@ -83,8 +66,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({
                     username: data.username,
                     password: data.password,
-                    role: data.role // Отправляем роль на сервер
-                })
+                    role: data.role
+                }),
+                credentials: 'include'
             });
 
             const responseData = await response.json();
@@ -93,11 +77,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error(responseData.message || 'Ошибка регистрации');
             }
 
-            alert('Регистрация успешна! Теперь вы можете войти.');
+            await Swal.fire({
+                icon: 'success',
+                title: 'Успешно!',
+                text: 'Регистрация завершена. Теперь вы можете войти.',
+                confirmButtonColor: '#2ecc71'
+            });
             showLoginLink.click();
-
         } catch (error) {
-            displayError(error.message);
+            Swal.fire({ icon: 'error', title: 'Ошибка', text: error.message });
         }
     });
 });
