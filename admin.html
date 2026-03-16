@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Админ-панель - ChessRad</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #e74c3c;
+            --bg: #f4f7f6;
+            --text: #2c3e50;
+            --success: #2ecc71;
+            --warning: #f1c40f;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+        }
+        .admin-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 20px;
+        }
+        h1 { margin: 0; font-weight: 800; color: var(--primary); }
+        .back-btn {
+            text-decoration: none;
+            color: #7f8c8d;
+            font-weight: 600;
+            transition: 0.2s;
+        }
+        .back-btn:hover { color: var(--text); }
+
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th {
+            text-align: left;
+            background: #f8f9fa;
+            padding: 15px;
+            border-bottom: 2px solid #eee;
+        }
+        td {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+        }
+        tr:hover { background: #fafafa; }
+
+        select {
+            padding: 8px;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+            font-family: inherit;
+            cursor: pointer;
+            outline: none;
+        }
+        select:focus { border-color: var(--primary); }
+
+        .badge-role {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .role-admin { background: #ffdada; color: #e74c3c; }
+        .role-teacher { background: #d0ebff; color: #228be6; }
+        .role-student { background: #e3fcef; color: #0ca678; }
+
+        /* Кнопки действий */
+        .btn-action {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            margin-right: 5px;
+            transition: 0.2s;
+        }
+        .btn-reset {
+            background: #f1c40f;
+            color: #fff;
+        }
+        .btn-reset:hover { background: #f39c12; }
+        .btn-delete {
+            background: #e74c3c;
+            color: #fff;
+        }
+        .btn-delete:hover { background: #c0392b; }
+    </style>
+</head>
+<body>
+
+    <div class="admin-container">
+        <header>
+            <h1>Управление ChessRad</h1>
+            <a href="/lobby" class="back-btn">← Вернуться в лобби</a>
+        </header>
+
+        <section>
+            <div class="controls">
+                <label for="sort-mode"><strong>Сортировка:</strong></label>
+                <select id="sort-mode" onchange="loadUsers()">
+                    <option value="new">Сначала новые</option>
+                    <option value="old">Сначала старые</option>
+                    <option value="rating">По рейтингу</option>
+                    <option value="alphabet">По алфавиту</option>
+                </select>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Пользователь</th>
+                        <th>Роль</th>
+                        <th>Рейтинг</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="users-list">
+                    <tr>
+                        <td colspan="5" style="text-align: center;">Загрузка данных...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+    </div>
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="/js/admin.js"></script>
+</body>
+</html>
