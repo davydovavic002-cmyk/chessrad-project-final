@@ -16,8 +16,11 @@ import cookie from 'cookie';
 import rateLimit from 'express-rate-limit';
 import cors from 'cors';
 import { Chess } from 'chess.js'; // Добавили импорт для проверки ходов на сервере
+import session from 'express-session'; // или const session = require('express-session');
+import sqliteStore from 'connect-sqlite3';
 
 import {
+    db,
     initDb,
     addUser,
     findUserByUsername,
@@ -28,7 +31,13 @@ import {
     joinStudentToRoom,
     updateStudyRoomFen,
     getTeacherRooms,
-    deleteStudyRoom
+getNextPuzzleForUser,
+    solvePuzzleUpdate,
+    deleteStudyRoom,
+    // --- НОВЫЕ ФУНКЦИИ ДЛЯ ПАЗЛОВ ---
+    initPuzzlesTable,
+getSolvedCountToday,
+    completeDailyPuzzles    // Для стрика (10 задач)
 } from './db.js';
 import { Game } from './gamelogic.js';
 import { Tournament } from './tournament.js';
@@ -61,6 +70,9 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
+const SQLiteStore = sqliteStore(session);
+
+
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 20,
@@ -73,6 +85,20 @@ const io = new Server(httpsServer, {
     cors: corsOptions
 });
 
+app.use(session({
+    // Указываем SQLite в качестве хранилища
+    store: new SQLiteStore({
+        db: 'chess-app.db',    // Имя твоей базы
+        dir: './db'            // Папка, где она лежит
+    }),
+    secret: 'chess-secret-key',
+    resave: false,
+    saveUninitialized: false, // Ставим false, чтобы не плодить пустые сессии
+    cookie: {
+        maxAge: 24 * 60 * 60 * 1000,
+        secure: true
+    }
+}));
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-if-env-missing';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -107,10 +133,38 @@ app.get('/reset-tournament', (req, res) => {
 // ---------------------------------
 // 3. MIDDLEWARE
 // ---------------------------------
+
+// ---------------------------------
+// 3. MIDDLEWARE
+// ---------------------------------
 app.use(express.json());
 app.use(cookieParser());
-app.use(express.static(path.join(__dirname, 'public')));
 
+app.use((req, res, next) => {
+    // credentialless критически важен для загрузки картинок с других доменов при включенном COEP
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');
+
+res.setHeader(
+         'Content-Security-Policy',
+         "default-src 'self'; " +
+         // script-src: добавили blob: для работы confetti (web workers)
+         "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://code.jquery.com https://unpkg.com https://cdnjs.cloudflare.com blob:; " +
+         // worker-src: явно разрешаем воркеры из blob (критично для анимаций)
+         "worker-src 'self' blob:; " +
+         // style-src: добавили cdnjs и unpkg для стилей досок
+         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com https://cdnjs.cloudflare.com; " +
+         "font-src 'self' https://fonts.gstatic.com; " +
+         // img-src: КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ. Добавили cdnjs (откуда мы берем фигуры)
+         "img-src 'self' data: https://unpkg.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " +
+         // connect-src: добавили поддержку сокетов и API на основном домене
+         "connect-src 'self' wss://chessrad.app https://chessrad.app https://cdn.jsdelivr.net https://cdnjs.cloudflare.com;"
+     );
+
+    next();
+});
+
+app.use(express.static(path.join(__dirname, 'public')));
 // ---------------------------------
 // 4. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 // ---------------------------------
@@ -437,6 +491,112 @@ app.put('/api/positions/:id', authenticateToken, async (req, res) => {
     }
 });
 
+// --- API ДЛЯ ТРЕНАЖЕРА И СТРИКОВ ---
+
+// --- ОБНОВЛЕННОЕ API ДЛЯ ТРЕНАЖЕРА ---
+
+// 0. Сброс офсета сессии (вызывать при старте тренировки)
+app.post('/api/puzzle/reset-session', authenticateToken, (req, res) => {
+    req.session.puzzleOffset = 0;
+    res.json({ success: true });
+});
+
+// 1. Получить статус для Лобби
+app.get('/api/user/puzzle-status', async (req, res) => {
+    const token = req.cookies.token || req.cookies.jwt;
+    if (!token) return res.json({ solvedToday: 0, streak: 0, completedToday: false });
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+        const userId = decoded.id || decoded.userId;
+
+        const solvedToday = await getSolvedCountToday(userId);
+        const user = await findUserById(userId);
+
+        res.json({
+            solvedToday: solvedToday || 0,
+            streak: user ? user.daily_streak : 0,
+            completedToday: solvedToday >= 10
+        });
+    } catch (err) {
+        res.json({ solvedToday: 0, streak: 0, completedToday: false });
+    }
+});
+
+// 2. Получить следующую задачу (С ИСПРАВЛЕНИЕМ ПОВТОРОВ)
+app.get('/api/puzzle/next', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        // Если офсета нет в сессии - ставим 0
+        if (req.session.puzzleOffset === undefined) {
+            req.session.puzzleOffset = 0;
+        }
+
+        // Получаем уровень пользователя
+        const user = await db.get('SELECT puzzle_level FROM users WHERE id = ?', [userId]);
+
+        // Берем задачу из базы с учетом офсета
+        // LIMIT 1 OFFSET X берет одну задачу, пропустив X штук от начала
+        const puzzle = await db.get(
+            'SELECT * FROM puzzles ORDER BY id LIMIT 1 OFFSET ?',
+            [user.puzzle_level + req.session.puzzleOffset]
+        );
+
+        if (!puzzle) {
+            return res.status(404).json({ message: 'Задачи кончились' });
+        }
+
+        // Двигаем офсет вперед: следующая задача будет ID + 1
+        req.session.puzzleOffset++;
+
+        res.json(puzzle);
+    } catch (error) {
+        console.error("ОШИБКА NEXT PUZZLE:", error);
+        res.status(500).json({ message: 'Ошибка сервера' });
+    }
+});
+
+// 3. Засчитать решение одной задачи
+app.post('/api/puzzle/solve', authenticateToken, async (req, res) => {
+    try {
+        const { puzzleId } = req.body;
+        const userId = req.user.id;
+
+        await solvePuzzleUpdate(userId, puzzleId);
+
+        // Так как уровень в базе вырос, уменьшаем офсет сессии,
+        // чтобы "точка отсчета" и "текущий прогресс" совпали
+        if (req.session.puzzleOffset > 0) {
+            req.session.puzzleOffset--;
+        }
+
+        res.json({ success: true });
+    } catch (e) {
+        console.error("Ошибка при сохранении решения:", e);
+        res.status(500).send('Error');
+    }
+});
+
+// 4. Завершить дневную норму (Стрик)
+app.post('/api/puzzle/complete-daily', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const solvedToday = await getSolvedCountToday(userId);
+
+        if (solvedToday >= 10) {
+            await completeDailyPuzzles(userId);
+            // Сбрасываем офсет, так как день успешно завершен
+            req.session.puzzleOffset = 0;
+            res.json({ success: true, message: "Стрик обновлен!" });
+        } else {
+            res.status(400).json({ success: false, message: `Решено только ${solvedToday}/10 задач` });
+        }
+    } catch (e) {
+        res.status(500).send('Error');
+    }
+});
+
 // ---------------------------------
 // 6. ЛОГИКА SOCKET.IO
 // ---------------------------------
@@ -454,41 +614,73 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
+    // ПРОВЕРКА: Если пользователь не определен, отключаем сразу
     if (!socket.user || !socket.user.id) {
         console.warn('⚠️ Подключение сокета без данных пользователя прервано');
         return socket.disconnect();
     }
 
-    onlineUsers.set(socket.user.id, { id: socket.user.id, username: socket.user.username, socket: socket });
+    const userId = socket.user.id; // Удобная константа для использования ниже
 
-    socket.on('study:join', async ({ roomCode }) => {
+    onlineUsers.set(userId, { id: userId, username: socket.user.username, socket: socket });
+
+// --- ОБУЧЕНИЕ (С ВКЛАДКАМИ) ---
+socket.on('study:join', async ({ roomCode }) => {
+    try {
         const room = await findStudyRoomByCode(roomCode);
         if (room) {
             socket.join(roomCode);
-            socket.emit('study:roomData', room);
-        }
-    });
+            // Если в БД есть вкладки (в виде JSON), парсим их, иначе отправляем стандарт
+            const tabsData = room.tabs ? (typeof room.tabs === 'string' ? JSON.parse(room.tabs) : room.tabs) : null;
 
-    socket.on('study:move', async ({ roomCode, fen, type }) => {
+            socket.emit('study:roomData', {
+                ...room,
+                tabs: tabsData,
+                activeTabId: room.active_tab_id || 'play',
+                pgn: room.pgn || '' // Добавили передачу PGN при входе
+            });
+        }
+    } catch (error) {
+        console.error('Ошибка в study:join:', error);
+    }
+});
+
+// --- ОБНОВЛЕННЫЙ БЛОК ХОДОВ (STUDY) ---
+// --- ОБНОВЛЕННЫЙ БЛОК ХОДОВ (STUDY) ---
+socket.on('study:move', async ({ roomCode, tabId, fen, pgn, customHistory }) => {
+    try {
+        const userId = socket.user.id;
         const room = await findStudyRoomByCode(roomCode);
         if (!room) return;
 
-        const isTeacher = (room.teacher_id === socket.user?.id || socket.user?.role === 'admin');
-        if ((type === 'demo' || type === 'edit') && !isTeacher) return;
+        // Права: учитель, админ или назначенный ученик
+        const isTeacher = (Number(room.teacher_id) === Number(userId) || socket.user.role === 'admin' || socket.user.role === 'teacher');
+        const isStudent = (Number(room.student_id) === Number(userId));
 
-        await updateStudyRoomFen(roomCode, fen);
-        socket.to(roomCode).emit('study:syncMove', { fen, type });
+        // Разрешаем ходить, если это учитель/админ ИЛИ если это ученик этой комнаты
+        if (!isTeacher && !isStudent) return;
 
-        // АВТОСОХРАНЕНИЕ РЕЗУЛЬТАТА ДЛЯ РЕЖИМА "PLAY"
-        if (type === 'play') {
+        // ВАЖНО: Обновляем данные в базе данных.
+        // Убедитесь, что ваша функция updateStudyRoomFen умеет принимать и сохранять customHistory в объект вкладки
+        await updateStudyRoomFen(roomCode, fen, tabId, pgn, customHistory);
+
+        // Рассылаем обновленное состояние ВСЕМ участникам комнаты, ВКЛЮЧАЯ customHistory
+        io.to(roomCode).emit('study:syncMove', {
+            tabId,
+            fen,
+            pgn,
+            customHistory: customHistory || [] // Передаем историю, чтобы клиент мог её отрисовать
+        });
+
+        // Если это игровая вкладка 'play', проверяем завершение партии
+        if (tabId === 'play') {
             const game = new Chess(fen);
             if (game.game_over()) {
                 if (room.teacher_id && room.student_id) {
-                    let winnerId = null;
-                    let loserId = null;
-                    let isDraw = false;
+                    let winnerId = null, loserId = null, isDraw = false;
 
                     if (game.in_checkmate()) {
+                        // Если сейчас ход белых и мат — значит победили черные (ученик)
                         if (game.turn() === 'w') {
                             winnerId = room.student_id;
                             loserId = room.teacher_id;
@@ -497,41 +689,71 @@ io.on('connection', (socket) => {
                             loserId = room.student_id;
                         }
                     } else {
+                        // Пат или иная ничья
                         isDraw = true;
-                        winnerId = room.teacher_id;
-                        loserId = room.student_id;
+                        // Для статистики можно передать обоих или обработать отдельно в updateUserStats
                     }
 
                     await updateUserStats(winnerId, loserId, isDraw);
-
-                    // НОВОЕ: Отправка уведомления всем участникам комнаты
-                    io.to(roomCode).emit('study:gameFinished', {
-                        winnerId,
-                        isDraw
-                    });
-
-                    console.log(`[Study] Game result saved and broadcasted for room ${roomCode}`);
+                    io.to(roomCode).emit('study:gameFinished', { winnerId, isDraw });
                 }
             }
         }
-    });
+    } catch (error) {
+        console.error('Ошибка в study:move:', error);
+    }
+});
 
-    socket.on('study:changeMode', async ({ roomCode, mode }) => {
+// --- ОБНОВЛЕНИЕ ВКЛАДОК ---
+socket.on('study:updateTabs', async ({ roomCode, tabs, activeTabId }) => {
+    try {
+        const userId = socket.user.id;
         const room = await findStudyRoomByCode(roomCode);
-        if (room && (room.teacher_id === socket.user?.id || socket.user?.role === 'admin')) {
-            socket.to(roomCode).emit('study:syncMode', { mode });
-        }
-    });
 
-    socket.on('study:draw', async ({ roomCode, shapes }) => {
-        const room = await findStudyRoomByCode(roomCode);
-        if (room && (room.teacher_id === socket.user?.id || socket.user?.role === 'admin')) {
-            socket.to(roomCode).emit('study:syncDraw', { shapes });
+        if (room && (Number(room.teacher_id) === Number(userId) || socket.user.role === 'admin' || socket.user.role === 'teacher')) {
+            const { updateRoomTabs } = await import('./db.js');
+            await updateRoomTabs(roomCode, tabs, activeTabId);
+            io.to(roomCode).emit('study:syncTabs', { tabs, activeTabId });
         }
-    });
+    } catch (error) {
+        console.error('Ошибка в study:updateTabs:', error);
+    }
+});
+
+// --- ПЕРЕКЛЮЧЕНИЕ ВКЛАДКИ ---
+socket.on('study:switchTab', async ({ roomCode, tabId }) => {
+    try {
+        const userId = socket.user.id;
+        const room = await findStudyRoomByCode(roomCode);
+
+        if (room && (Number(room.teacher_id) === Number(userId) || socket.user.role === 'admin' || socket.user.role === 'teacher')) {
+            const { updateActiveTab } = await import('./db.js');
+            await updateActiveTab(roomCode, tabId);
+            socket.to(roomCode).emit('study:syncSwitchTab', { tabId });
+        }
+    } catch (error) {
+        console.error('Ошибка в study:switchTab:', error);
+    }
+});
+
+// --- РИСОВАНИЕ ---
+socket.on('study:draw', async ({ roomCode, tabId, shapes }) => {
+    try {
+        const userId = socket.user.id;
+        const room = await findStudyRoomByCode(roomCode);
+
+        // Рисовать может только учитель/админ
+        if (room && (Number(room.teacher_id) === Number(userId) || socket.user.role === 'admin' || socket.user.role === 'teacher')) {
+            socket.to(roomCode).emit('study:syncDraw', { tabId, shapes });
+        }
+    } catch (error) {
+        console.error('Ошибка в study:draw:', error);
+    }
+});
+
 
     socket.on('findGame', () => {
-        const currentUserId = socket.user?.id;
+        const currentUserId = userId;
         if (!currentUserId) return;
 
         const idx = matchmakingQueue.findIndex(s => s.user?.id === currentUserId);
@@ -555,7 +777,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('tournament:leave', () => {
-        if (mainTournament) {
+        if (mainTournament && socket.user) {
             mainTournament.removePlayer(socket);
             io.emit('tournament:stateUpdate', mainTournament.getState());
         }
@@ -571,7 +793,7 @@ io.on('connection', (socket) => {
         socket.join(gameId);
         socket.emit('game:state', {
             fen: game.chess.fen(),
-            color: game.getPlayerColor(socket.user.id),
+            color: game.getPlayerColor(userId),
             playerWhite: game.playerWhite.user?.username || '?',
             playerBlack: game.playerBlack.user?.username || '?'
         });
@@ -579,35 +801,75 @@ io.on('connection', (socket) => {
 
     socket.on('tournament:game:move', ({ gameId, move }) => {
         const game = activeGames.get(gameId);
-        if (game && socket.user) game.makeMove(move, socket.user.id);
+        if (game && socket.user) game.makeMove(move, userId);
     });
 
     socket.on('tournament:game:resign', ({ gameId }) => {
         const game = activeGames.get(gameId);
-        if (game && socket.user) game.resign(socket.user.id);
+        if (game && socket.user) game.resign(userId);
     });
 
     socket.on('disconnect', () => {
-        if (socket.user?.id) {
-            onlineUsers.delete(socket.user.id);
+        if (userId) {
+            onlineUsers.delete(userId);
+        }
+    });
+
+    // --- ОБРАБОТКА ИГРОВЫХ СОБЫТИЙ В SERVER.JS ---
+
+    socket.on('move', ({ move, roomId }) => {
+        const gameInstance = activeGames.get(roomId);
+        if (gameInstance) {
+            gameInstance.makeMove(socket.id, move);
+        }
+    });
+
+    socket.on('surrender', ({ roomId }) => {
+        const gameInstance = activeGames.get(roomId);
+        if (gameInstance) {
+            gameInstance.handleSurrender(socket.id);
+        }
+    });
+
+    socket.on('rematch', ({ roomId }) => {
+        const gameInstance = activeGames.get(roomId);
+        if (gameInstance) {
+            gameInstance.handleRematchRequest(socket.id);
+        }
+    });
+
+    socket.on('rematchAccepted', ({ roomId }) => {
+        const gameInstance = activeGames.get(roomId);
+        if (gameInstance) {
+            gameInstance.handleRematchAccept(socket.id);
         }
     });
 });
 // ---------------------------------
 // 7. ЗАПУСК
 // ---------------------------------
+
 const startServer = async () => {
     try {
+        // Сначала готовим базу
         await initDb();
+        // Если функция initPuzzlesTable отдельно импортирована, можно оставить для подстраховки
+        await initPuzzlesTable();
+
+        console.log('[DB] Все таблицы проверены и готовы.');
+
         httpsServer.listen(443, () => {
-            console.log(`🚀 HTTPS Сервер: https://chessrad.app`);
+            console.log(`🚀 HTTPS Сервер запущен: https://chessrad.app`);
         });
+
+        // Редирект с HTTP на HTTPS
         http.createServer((req, res) => {
             res.writeHead(301, { "Location": "https://" + req.headers['host'] + req.url });
             res.end();
         }).listen(80);
+
     } catch (err) {
-        console.error(err);
+        console.error("КРИТИЧЕСКАЯ ОШИБКА ЗАПУСКА:", err);
     }
 };
 
