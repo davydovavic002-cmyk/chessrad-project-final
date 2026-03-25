@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Редактор позиций - ChessRad</title>
+    <link rel="stylesheet" href="/css/chessboard-1.0.0.min.css">
+    <link rel="stylesheet" href="/css/style.css">
+    <style>
+        :root { --primary-blue: #3498db; --neon-blue: rgba(52, 152, 219, 0.6); --bg-light: #f9f9f9; }
+        .editor-container { max-width: 1200px; margin: 40px auto; display: flex; gap: 30px; padding: 20px; }
+        .board-section { flex: 1; position: sticky; top: 20px; height: fit-content; }
+        .form-section { flex: 1; background: var(--bg-light); padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; font-weight: 600; color: #333; }
+        .form-group input { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; box-sizing: border-box; transition: 0.3s; }
+        .form-group input:focus { border-color: var(--primary-blue); outline: none; box-shadow: 0 0 8px var(--neon-blue); }
+
+        .btn-save { background: #2ecc71; color: white; border: none; padding: 15px 30px; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; transition: 0.3s; margin-bottom: 10px; }
+        .btn-save:hover { background: #27ae60; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(46, 204, 113, 0.4); }
+        .btn-cancel { background: #95a5a6; color: white; border: none; padding: 10px; border-radius: 8px; cursor: pointer; width: 100%; display: none; margin-bottom: 10px; }
+
+        .pos-list { margin-top: 30px; border-top: 2px solid #eee; padding-top: 20px; }
+        .library-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 15px; margin-top: 15px; }
+
+        .folder-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 12px; padding: 20px 10px; text-align: center; cursor: pointer; transition: 0.3s; position: relative; }
+        .folder-card.drag-over { background: #e3f2fd; border: 2px dashed var(--primary-blue); transform: scale(1.05); }
+        .folder-card:hover { border-color: var(--primary-blue); transform: translateY(-3px); background: #f0f7ff; }
+
+        .position-card { background: white; border-radius: 10px; overflow: hidden; border: 1px solid #eee; transition: 0.3s; display: flex; flex-direction: column; cursor: grab; }
+        .position-card:active { cursor: grabbing; }
+        .position-card:hover { border-color: var(--primary-blue); box-shadow: 0 0 12px var(--neon-blue); }
+
+        /* Обновил стили для мини-досок */
+        .mini-board-preview { width: 100%; aspect-ratio: 1/1; cursor: pointer; }
+        .pos-info { padding: 10px; font-size: 13px; flex-grow: 1; border-top: 1px solid #f0f0f0; background: white; z-index: 2; }
+        .pos-info strong { display: block; margin-bottom: 5px; color: #2c3e50; }
+        .btn-delete-small { color: #e74c3c; border: none; background: none; cursor: pointer; font-size: 11px; margin-right: 10px; }
+        .btn-edit-small { color: var(--primary-blue); border: none; background: none; cursor: pointer; font-size: 11px; }
+        .back-link { color: var(--primary-blue); cursor: pointer; display: inline-flex; align-items: center; margin-bottom: 15px; font-weight: bold; }
+        #fen-display { background: #eee; padding: 10px; border-radius: 5px; font-family: monospace; font-size: 12px; margin-top: 10px; word-break: break-all; }
+        .btn-tool { padding: 8px 15px; border-radius: 6px; border: 1px solid #ddd; background: white; cursor: pointer; margin-right: 5px; font-size: 13px; }
+    </style>
+</head>
+<body>
+
+<div class="editor-container">
+    <div class="board-section">
+        <div id="board" style="width: 100%; max-width: 500px"></div>
+        <div id="fen-display">FEN: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1</div>
+        <div style="margin-top: 15px;">
+            <button class="btn-tool" onclick="resetEditor()">Начальная</button>
+            <button class="btn-tool" onclick="board.clear()">Очистить</button>
+            <button class="btn-tool" onclick="board.flip()">Поворот</button>
+        </div>
+    </div>
+
+    <div class="form-section">
+        <h2 id="form-title">Добавить в библиотеку</h2>
+        <input type="hidden" id="edit-pos-id" value="">
+
+        <div class="form-group">
+            <label>Название позиции</label>
+            <input type="text" id="pos-title" placeholder="Например: Мат Легаля">
+        </div>
+        <div class="form-group">
+            <label>Категория (Папка)</label>
+            <input type="text" id="pos-category" list="category-list" placeholder="Например: Дебютные ловушки">
+            <datalist id="category-list"></datalist>
+        </div>
+
+        <button class="btn-save" id="save-btn">Сохранить позицию</button>
+        <button class="btn-cancel" id="cancel-edit" onclick="resetEditor()">Отменить редактирование</button>
+
+        <div class="pos-list" id="my-positions">
+            <div id="library-header"><h3>Ваша библиотека</h3></div>
+            <div class="form-group" style="margin-top: 10px;">
+                <input type="text" id="lib-search" placeholder="🔍 Быстрый поиск..." oninput="handleSearch(this.value)">
+            </div>
+            <div id="positions-container" class="library-grid"></div>
+        </div>
+
+        <a href="/profile.html" style="display: block; margin-top: 30px; text-align: center; color: #95a5a6; text-decoration: none; font-size: 14px;">← Вернуться в профиль</a>
+    </div>
+</div>
+
+<script src="/js/jquery-3.4.1.min.js"></script>
+<script src="/js/chessboard-1.0.0.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.min.js"></script>
+
+<script>
+    let board = null;
+    let allPositions = [];
+
+    function onChange (oldPos, newPos) {
+        const fen = Chessboard.objToFen(newPos) + ' w - - 0 1';
+        document.getElementById('fen-display').innerText = 'FEN: ' + fen;
+    }
+
+    board = Chessboard('board', {
+        draggable: true, dropOffBoard: 'trash', sparePieces: true, position: 'start', onChange: onChange
+    });
+
+    async function loadLibrary() {
+        const res = await fetch('/api/positions');
+        allPositions = await res.json();
+        updateCategoryDatalist();
+        renderFolders();
+    }
+
+    function updateCategoryDatalist() {
+        const list = document.getElementById('category-list');
+        const categories = [...new Set(allPositions.map(p => p.category || 'Общее'))];
+        list.innerHTML = categories.map(cat => `<option value="${cat}">`).join('');
+    }
+
+    function renderFolders() {
+        const container = document.getElementById('positions-container');
+        document.getElementById('library-header').innerHTML = '<h3>Ваша библиотека</h3>';
+        container.innerHTML = '';
+
+        const categories = [...new Set(allPositions.map(p => p.category || 'Общее'))];
+        categories.forEach(cat => {
+            const count = allPositions.filter(p => (p.category || 'Общее') === cat).length;
+            const div = document.createElement('div');
+            div.className = 'folder-card';
+            div.innerHTML = `<span class="folder-icon" style="font-size: 24px;">📂</span><strong>${cat}</strong><div style="font-size: 12px; color: #7f8c8d;">${count} поз.</div>`;
+
+            div.onclick = (e) => { if(e.target === div || div.contains(e.target)) renderCategory(cat); };
+
+            div.ondragover = (e) => { e.preventDefault(); div.classList.add('drag-over'); };
+            div.ondragleave = () => div.classList.remove('drag-over');
+            div.ondrop = async (e) => {
+                e.preventDefault();
+                div.classList.remove('drag-over');
+                const posId = e.dataTransfer.getData('text/plain');
+                await movePositionToCategory(posId, cat);
+            };
+
+            container.appendChild(div);
+        });
+    }
+
+    async function movePositionToCategory(posId, newCategory) {
+        const pos = allPositions.find(p => p.id == posId);
+        if (!pos || pos.category === newCategory) return;
+
+        const res = await fetch(`/api/positions/${posId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...pos, category: newCategory })
+        });
+
+        if (res.ok) {
+            await loadLibrary();
+        }
+    }
+
+    // Вспомогательная функция для отрисовки мини-досок
+    function createMiniBoard(elementId, fen) {
+        setTimeout(() => {
+            Chessboard(elementId, {
+                position: fen,
+                showNotation: false,
+                draggable: false
+            });
+        }, 50);
+    }
+
+    function renderCategory(categoryName) {
+        const container = document.getElementById('positions-container');
+        document.getElementById('library-header').innerHTML = `<div class="back-link" onclick="renderFolders()">← Назад</div><h3>Папка: ${categoryName}</h3>`;
+        container.innerHTML = '';
+        const filtered = allPositions.filter(p => (p.category || 'Общее') === categoryName);
+
+        filtered.forEach(pos => {
+            const boardId = `mini-board-${pos.id}`;
+            const div = document.createElement('div');
+            div.className = 'position-card';
+            div.draggable = true;
+            div.ondragstart = (e) => {
+                e.dataTransfer.setData('text/plain', pos.id);
+                div.style.opacity = '0.5';
+            };
+            div.ondragend = () => div.style.opacity = '1';
+
+            // Вместо <img> вставляем пустой div для доски
+            div.innerHTML = `
+                <div id="${boardId}" class="mini-board-preview" onclick="applyFen('${pos.fen}')"></div>
+                <div class="pos-info">
+                    <strong>${pos.title}</strong>
+                    <button class="btn-edit-small" onclick="editPos(${pos.id})">Изм.</button>
+                    <button class="btn-delete-small" onclick="deletePos(${pos.id}, '${categoryName}')">Удалить</button>
+                </div>`;
+            container.appendChild(div);
+
+            // Инициализируем доску в созданном div
+            createMiniBoard(boardId, pos.fen);
+        });
+    }
+
+    function handleSearch(query) {
+        const container = document.getElementById('positions-container');
+        query = query.toLowerCase().trim();
+        if (!query) { renderFolders(); return; }
+        container.innerHTML = '';
+
+        allPositions.filter(p => p.title.toLowerCase().includes(query)).forEach(pos => {
+            const boardId = `search-mini-${pos.id}`;
+            const div = document.createElement('div');
+            div.className = 'position-card';
+            div.innerHTML = `
+                <div id="${boardId}" class="mini-board-preview" onclick="applyFen('${pos.fen}')"></div>
+                <div class="pos-info">
+                    <strong>${pos.title}</strong>
+                    <button class="btn-edit-small" onclick="editPos(${pos.id})">Изм.</button>
+                    <button class="btn-delete-small" onclick="deletePos(${pos.id})">Удалить</button>
+                </div>`;
+            container.appendChild(div);
+
+            createMiniBoard(boardId, pos.fen);
+        });
+    }
+
+    function editPos(id) {
+        const pos = allPositions.find(p => p.id === id);
+        if (!pos) return;
+        document.getElementById('edit-pos-id').value = pos.id;
+        document.getElementById('pos-title').value = pos.title;
+        document.getElementById('pos-category').value = pos.category || 'Общее';
+        applyFen(pos.fen);
+        document.getElementById('form-title').innerText = 'Редактировать позицию';
+        document.getElementById('save-btn').innerText = 'Сохранить изменения';
+        document.getElementById('save-btn').style.background = '#3498db';
+        document.getElementById('cancel-edit').style.display = 'block';
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function resetEditor() {
+        document.getElementById('edit-pos-id').value = '';
+        document.getElementById('pos-title').value = '';
+        document.getElementById('pos-category').value = '';
+        document.getElementById('form-title').innerText = 'Добавить в библиотеку';
+        document.getElementById('save-btn').innerText = 'Сохранить позицию';
+        document.getElementById('save-btn').style.background = '#2ecc71';
+        document.getElementById('cancel-edit').style.display = 'none';
+        board.start();
+    }
+
+    function applyFen(fen) {
+        board.position(fen);
+        document.getElementById('fen-display').innerText = 'FEN: ' + fen;
+    }
+
+    document.getElementById('save-btn').onclick = async () => {
+        const id = document.getElementById('edit-pos-id').value;
+        const title = document.getElementById('pos-title').value.trim();
+        const category = document.getElementById('pos-category').value.trim() || 'Общее';
+        const fen = document.getElementById('fen-display').innerText.replace('FEN: ', '');
+        if (!title) return alert('Введите название!');
+
+        const url = id ? `/api/positions/${id}` : '/api/positions';
+        const method = id ? 'PUT' : 'POST';
+        const res = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, category, fen })
+        });
+
+        if (res.ok) {
+            resetEditor();
+            await loadLibrary();
+        }
+    };
+
+    async function deletePos(id) {
+        if (!confirm('Удалить позицию?')) return;
+        const res = await fetch(`/api/positions/${id}`, { method: 'DELETE' });
+        if (res.ok) await loadLibrary();
+    }
+
+    loadLibrary();
+</script>
+</body>
+</html>
