@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import fs from 'fs';
 import path from 'path';
 
-let db;
+export let db;
 
 const LEVEL_THRESHOLDS = [
     { name: 'Большой мастер', min: 7500 },
@@ -19,7 +19,7 @@ function getLevelByRating(rating) {
     return level ? level.name : 'Новичок';
 }
 
-async function getDbConnection() {
+export async function getDbConnection() {
     if (!db) {
         const dbDir = './db';
         if (!fs.existsSync(dbDir)) {
@@ -29,6 +29,22 @@ async function getDbConnection() {
             filename: path.join(dbDir, 'chess-app.db'),
             driver: sqlite3.Database
         });
+
+        // --- ДОБАВЛЕНО ДЛЯ ИСПРАВЛЕНИЯ SQLITE_BUSY ---
+        try {
+            // Включаем режим WAL (Write-Ahead Logging)
+            // Это позволяет читать базу, пока в неё идет запись
+            await db.run('PRAGMA journal_mode = WAL');
+
+            // Устанавливаем время ожидания (5 секунд)
+            // Если база занята, SQLite подождет, а не выкинет ошибку сразу
+            await db.run('PRAGMA busy_timeout = 5000');
+
+            console.log('[DB] Настройки оптимизации применены: WAL mode и Busy Timeout.');
+        } catch (err) {
+            console.error('[DB] Ошибка при настройке PRAGMA:', err);
+        }
+        // ---------------------------------------------
     }
     return db;
 }
@@ -49,7 +65,12 @@ export const initDb = async () => {
             level TEXT NOT NULL DEFAULT 'Новичок',
             rating INTEGER NOT NULL DEFAULT 500,
             win_streak INTEGER NOT NULL DEFAULT 0,
-            trophies TEXT DEFAULT '[]'
+            daily_streak INTEGER NOT NULL DEFAULT 0,
+            last_puzzle_date TEXT DEFAULT NULL,
+            puzzle_level INTEGER NOT NULL DEFAULT 1,
+            trophies TEXT DEFAULT '[]',
+            avatar_url TEXT DEFAULT "",
+            must_change_password INTEGER DEFAULT 0
         );
     `);
 
@@ -68,21 +89,26 @@ export const initDb = async () => {
         );
     `);
 
-    // Учебные комнаты
-    await db.exec(`
-        CREATE TABLE IF NOT EXISTS study_rooms (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            room_code TEXT UNIQUE NOT NULL,
-            teacher_id INTEGER NOT NULL,
-            student_id INTEGER,
-            fen TEXT DEFAULT 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(teacher_id) REFERENCES users(id),
-            FOREIGN KEY(student_id) REFERENCES users(id)
-        );
-    `);
+    // Учебные комнаты (ОБНОВЛЕНО: добавлены tabs и active_tab_id)
 
-    // Таблица библиотеки позиций
+// Находим блок инициализации study_rooms и добавляем pgn TEXT
+await db.exec(`
+    CREATE TABLE IF NOT EXISTS study_rooms (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        room_code TEXT UNIQUE NOT NULL,
+        teacher_id INTEGER NOT NULL,
+        student_id INTEGER,
+        fen TEXT DEFAULT 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        pgn TEXT DEFAULT '', -- ДОБАВИЛИ ЭТУ СТРОКУ
+        tabs TEXT DEFAULT '[{"id":"play","type":"play","fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1","shapes":[]}]',
+        active_tab_id TEXT DEFAULT 'play',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(teacher_id) REFERENCES users(id),
+        FOREIGN KEY(student_id) REFERENCES users(id)
+    );
+`);
+
+    // Библиотека позиций
     await db.exec(`
         CREATE TABLE IF NOT EXISTS position_library (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,20 +121,40 @@ export const initDb = async () => {
         );
     `);
 
-    const tableInfo = await db.all("PRAGMA table_info(users)");
+    // ТАБЛИЦА РЕШЕННЫХ ПАЗЛОВ
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS user_puzzles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            puzzle_id TEXT,
+            solved_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        );
+    `);
 
-    const hasAvatar = tableInfo.some(column => column.name === 'avatar_url');
-    if (!hasAvatar) {
-        await db.exec('ALTER TABLE users ADD COLUMN avatar_url TEXT DEFAULT ""');
+    // Миграции
+    const userTableInfo = await db.all("PRAGMA table_info(users)");
+    const userColumns = userTableInfo.map(c => c.name);
+    if (!userColumns.includes('daily_streak')) await db.exec('ALTER TABLE users ADD COLUMN daily_streak INTEGER DEFAULT 0');
+    if (!userColumns.includes('last_puzzle_date')) await db.exec('ALTER TABLE users ADD COLUMN last_puzzle_date TEXT DEFAULT NULL');
+    if (!userColumns.includes('puzzle_level')) await db.exec('ALTER TABLE users ADD COLUMN puzzle_level INTEGER DEFAULT 1');
+
+    // МИГРАЦИЯ ДЛЯ ВКЛАДОК
+    const roomTableInfo = await db.all("PRAGMA table_info(study_rooms)");
+    const roomColumns = roomTableInfo.map(c => c.name);
+    if (!roomColumns.includes('tabs')) {
+        await db.exec('ALTER TABLE study_rooms ADD COLUMN tabs TEXT DEFAULT \'[{"id":"play","type":"play","fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1","shapes":[]}]\'');
     }
-
-    const hasMustChange = tableInfo.some(column => column.name === 'must_change_password');
-    if (!hasMustChange) {
-        await db.exec('ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0');
+    if (!roomColumns.includes('active_tab_id')) {
+        await db.exec('ALTER TABLE study_rooms ADD COLUMN active_tab_id TEXT DEFAULT "play"');
     }
-
+if (!roomColumns.includes('pgn')) {
+    await db.exec('ALTER TABLE study_rooms ADD COLUMN pgn TEXT DEFAULT ""');
+}
     console.log('[DB] База данных инициализирована.');
 };
+
+// --- УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ ---
 
 export const addUser = async (username, password, role = 'student') => {
     const db = await getDbConnection();
@@ -129,7 +175,8 @@ export const findUserById = async (id) => {
     const db = await getDbConnection();
     const user = await db.get(`
         SELECT id, username, role, wins, losses, draws, level, rating,
-               win_streak, trophies, must_change_password, avatar_url
+               win_streak, daily_streak, last_puzzle_date, puzzle_level,
+               trophies, must_change_password, avatar_url
         FROM users WHERE id = ?
     `, id);
 
@@ -150,15 +197,216 @@ export const findUserById = async (id) => {
     return { ...user, history: history || [] };
 };
 
+// --- ПАЗЛЫ ---
+
+export async function initPuzzlesTable() {
+    const database = await getDbConnection();
+    await database.exec(`
+        CREATE TABLE IF NOT EXISTS puzzles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fen TEXT NOT NULL,
+            solution TEXT NOT NULL,
+            theme TEXT NOT NULL,
+            description TEXT
+        )
+    `);
+}
+
+export async function getNextPuzzleForUser(userId) {
+    const database = await getDbConnection();
+    const user = await database.get('SELECT puzzle_level FROM users WHERE id = ?', [userId]);
+    if (!user) return await database.get('SELECT * FROM puzzles ORDER BY RANDOM() LIMIT 1');
+
+    let puzzle = await database.get('SELECT * FROM puzzles WHERE id >= ? ORDER BY id ASC LIMIT 1', [user.puzzle_level]);
+    if (!puzzle) puzzle = await database.get('SELECT * FROM puzzles ORDER BY RANDOM() LIMIT 1');
+    return puzzle;
+}
+
+export const solvePuzzleUpdate = async (userId, puzzleId, points = 5) => {
+    const database = await getDbConnection();
+    await database.run('INSERT INTO user_puzzles (user_id, puzzle_id) VALUES (?, ?)', [userId, puzzleId]);
+    await database.run(`
+        UPDATE users
+        SET rating = rating + ?, puzzle_level = puzzle_level + 1
+        WHERE id = ?`, [points, userId]
+    );
+    const user = await database.get('SELECT rating FROM users WHERE id = ?', [userId]);
+    if (user) {
+        const newLevel = getLevelByRating(user.rating);
+        await database.run('UPDATE users SET level = ? WHERE id = ?', [newLevel, userId]);
+        return { success: true, newRating: user.rating, level: newLevel };
+    }
+    return { success: true };
+};
+
+export const completeDailyPuzzles = async (userId) => {
+    const database = await getDbConnection();
+    const today = new Date().toISOString().split('T')[0];
+    const user = await database.get('SELECT last_puzzle_date, daily_streak, rating FROM users WHERE id = ?', [userId]);
+
+    let newStreak = 1;
+    if (user && user.last_puzzle_date === today) {
+        newStreak = user.daily_streak;
+    } else if (user && user.last_puzzle_date) {
+        const lastDate = new Date(user.last_puzzle_date);
+        const currentDate = new Date(today);
+        const diffDays = Math.ceil(Math.abs(currentDate - lastDate) / (1000 * 60 * 60 * 24));
+        newStreak = (diffDays === 1) ? user.daily_streak + 1 : 1;
+    }
+
+    await database.run(`
+        UPDATE users SET rating = rating + 50, daily_streak = ?, last_puzzle_date = ? WHERE id = ?`,
+        [newStreak, today, userId]
+    );
+
+    const updatedUser = await database.get('SELECT rating FROM users WHERE id = ?', [userId]);
+    if (updatedUser) {
+        const newLevel = getLevelByRating(updatedUser.rating);
+        await database.run('UPDATE users SET level = ? WHERE id = ?', [newLevel, userId]);
+        return { success: true, newStreak, newRating: updatedUser.rating };
+    }
+    return { success: true, newStreak };
+};
+
+// --- ОБУЧАЮЩИЕ КЛАССЫ ---
+
+export const createStudyRoom = async (teacherId, roomCode) => {
+    const db = await getDbConnection();
+    await db.run('INSERT INTO study_rooms (teacher_id, room_code) VALUES (?, ?)', [teacherId, roomCode]);
+    return { teacherId, roomCode };
+};
+
+export const findStudyRoomByCode = async (code) => {
+    const db = await getDbConnection();
+    return await db.get(`
+        SELECT r.*, u.username as teacher_name FROM study_rooms r
+        JOIN users u ON r.teacher_id = u.id WHERE r.room_code = ?`, [code]);
+};
+
+export const countTeacherRooms = async (teacherId) => {
+    const db = await getDbConnection();
+    const result = await db.get('SELECT COUNT(*) as count FROM study_rooms WHERE teacher_id = ?', [teacherId]);
+    return result ? result.count : 0;
+};
+
+export const getTeacherRooms = async (teacherId) => {
+    const db = await getDbConnection();
+    return await db.all('SELECT * FROM study_rooms WHERE teacher_id = ? ORDER BY created_at DESC', [teacherId]);
+};
+
+export const joinStudentToRoom = async (roomCode, studentId) => {
+    const db = await getDbConnection();
+    await db.run('UPDATE study_rooms SET student_id = ? WHERE room_code = ?', [studentId, roomCode]);
+};
+
+export const deleteStudyRoom = async (roomCode, teacherId) => {
+    const db = await getDbConnection();
+    return await db.run('DELETE FROM study_rooms WHERE room_code = ? AND teacher_id = ?', [roomCode, teacherId]);
+};
+
+// --- ВКЛАДКИ (НОВОЕ) ---
+
+export const updateRoomTabs = async (roomCode, tabs, activeTabId) => {
+    const db = await getDbConnection();
+    const tabsJson = JSON.stringify(tabs);
+    return await db.run('UPDATE study_rooms SET tabs = ?, active_tab_id = ? WHERE room_code = ?',
+        [tabsJson, activeTabId, roomCode]);
+};
+
+export const updateActiveTab = async (roomCode, activeTabId) => {
+    const db = await getDbConnection();
+    return await db.run('UPDATE study_rooms SET active_tab_id = ? WHERE room_code = ?', [activeTabId, roomCode]);
+};
+
+
+export const updateStudyRoomFen = async (roomCode, fen, tabId = 'play', pgn = '', customHistory = []) => {
+    const db = await getDbConnection();
+
+    // 1. Получаем текущие вкладки
+    const room = await db.get('SELECT tabs FROM study_rooms WHERE room_code = ?', [roomCode]);
+
+    // Если вкладок нет (старая структура БД), обновляем только основные поля
+    if (!room || !room.tabs) {
+        return await db.run(
+            'UPDATE study_rooms SET fen = ?, pgn = ? WHERE room_code = ?',
+            [fen, pgn, roomCode]
+        );
+    }
+
+    let tabs = JSON.parse(room.tabs);
+
+    // 2. Обновляем FEN, PGN и CUSTOM HISTORY внутри JSON вкладок
+    tabs = tabs.map(t => {
+        if (t.id === tabId) {
+            // ВАЖНО: Добавляем customHistory в объект вкладки
+            return {
+                ...t,
+                fen: fen,
+                pgn: pgn,
+                customHistory: customHistory || []
+            };
+        }
+        return t;
+    });
+
+    const tabsJson = JSON.stringify(tabs);
+
+    // 3. Сохраняем всё в базу
+    // Обновляем основные поля (для совместимости) и полный JSON вкладок
+    return await db.run(
+        'UPDATE study_rooms SET fen = ?, pgn = ?, tabs = ? WHERE room_code = ?',
+        [fen, pgn, tabsJson, roomCode]
+    );
+};
+
+// --- ТРОФЕИ ---
+
+export const addTrophyToUser = async (userId, trophy) => {
+    const db = await getDbConnection();
+    try {
+        const user = await db.get('SELECT trophies FROM users WHERE id = ?', [userId]);
+        let trophies = [];
+        try { trophies = (user && user.trophies) ? JSON.parse(user.trophies) : []; } catch (e) { trophies = []; }
+        trophies.unshift({ ...trophy, date: new Date().toLocaleDateString('ru-RU') });
+        await db.run('UPDATE users SET trophies = ? WHERE id = ?', [JSON.stringify(trophies), userId]);
+        return true;
+    } catch (e) { return false; }
+};
+
+// --- БИБЛИОТЕКА ПОЗИЦИЙ ---
+
+export const addPosition = async (teacherId, title, category, fen) => {
+    const db = await getDbConnection();
+    return await db.run('INSERT INTO position_library (teacher_id, title, category, fen) VALUES (?, ?, ?, ?)',
+        [teacherId, title, category || 'Общее', fen]);
+};
+
+export const getTeacherPositions = async () => {
+    const db = await getDbConnection();
+    return await db.all(`
+        SELECT pl.*, u.username as author_name FROM position_library pl
+        JOIN users u ON pl.teacher_id = u.id ORDER BY category, title`);
+};
+
+export const deletePosition = async (posId) => {
+    const db = await getDbConnection();
+    return await db.run('DELETE FROM position_library WHERE id = ?', [posId]);
+};
+
+export const updatePosition = async (posId, teacherId, data) => {
+    const db = await getDbConnection();
+    return await db.run('UPDATE position_library SET title = ?, category = ?, fen = ? WHERE id = ?',
+        [data.title, data.category, data.fen, posId]);
+};
+
+// --- СТАТИСТИКА ИГР ---
+
 export const saveGameResult = async (p1_id, p2_id, winner_id, type = 'Обычный') => {
     const db = await getDbConnection();
     const date = new Date().toLocaleDateString('ru-RU');
     let res1 = (winner_id === p1_id) ? 'Победа' : (winner_id === null ? 'Ничья' : 'Поражение');
-
-    await db.run(
-        'INSERT INTO games (player1_id, player2_id, winner_id, result, game_type, date) VALUES (?, ?, ?, ?, ?, ?)',
-        [p1_id, p2_id, winner_id, res1, type, date]
-    );
+    await db.run('INSERT INTO games (player1_id, player2_id, winner_id, result, game_type, date) VALUES (?, ?, ?, ?, ?, ?)',
+        [p1_id, p2_id, winner_id, res1, type, date]);
 };
 
 export const updateUserStats = async (winnerId, loserId, isDraw = false) => {
@@ -171,35 +419,18 @@ export const updateUserStats = async (winnerId, loserId, isDraw = false) => {
             const winner = await db.get('SELECT win_streak FROM users WHERE id = ?', [winnerId]);
             const newStreak = (winner ? winner.win_streak : 0) + 1;
             const points = newStreak >= 3 ? 25 : 15;
-
             await db.run('UPDATE users SET wins = wins + 1, rating = rating + ?, win_streak = ? WHERE id = ?', [points, newStreak, winnerId]);
             await db.run('UPDATE users SET losses = losses + 1, rating = MAX(0, rating - 10), win_streak = 0 WHERE id = ?', [loserId]);
-
             await saveGameResult(winnerId, loserId, winnerId);
         }
-
-        const players = await db.all('SELECT id, rating FROM users WHERE id IN (?, ?)', [winnerId, loserId]);
-        for (const player of players) {
-            const newLevelName = getLevelByRating(player.rating);
-            await db.run('UPDATE users SET level = ? WHERE id = ?', [newLevelName, player.id]);
-        }
         return true;
-    } catch (error) {
-        console.error('[DB] Ошибка обновления статистики:', error);
-        return false;
-    }
+    } catch (error) { return false; }
 };
-
-// --- ФУНКЦИИ АДМИН-ПАНЕЛИ ---
 
 export async function getAllUsers(sortBy = 'new') {
     const db = await getDbConnection();
-    let orderBy = 'id DESC';
-    if (sortBy === 'old') orderBy = 'id ASC';
-    if (sortBy === 'rating') orderBy = 'rating DESC';
-    if (sortBy === 'alphabet') orderBy = 'username COLLATE NOCASE ASC';
-
-    return db.all(`SELECT id, username, role, rating, win_streak FROM users ORDER BY ${orderBy}`);
+    let orderBy = (sortBy === 'old') ? 'id ASC' : (sortBy === 'rating') ? 'rating DESC' : (sortBy === 'alphabet') ? 'username COLLATE NOCASE ASC' : 'id DESC';
+    return db.all(`SELECT id, username, role, rating, win_streak, daily_streak FROM users ORDER BY ${orderBy}`);
 }
 
 export async function updateUserRole(userId, newRole) {
@@ -209,129 +440,32 @@ export async function updateUserRole(userId, newRole) {
 
 export async function deleteUser(userId) {
     const db = await getDbConnection();
-    return db.run('DELETE FROM users WHERE id = ?', [userId]);
+    return await db.run('DELETE FROM users WHERE id = ?', [userId]);
 }
 
 export async function resetUserPassword(userId, tempPassword) {
-    const internalDb = await getDbConnection();
+    const db = await getDbConnection();
     const hash = await bcrypt.hash(tempPassword, 10);
-    return internalDb.run(
-        'UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?',
-        [hash, userId]
-    );
+    return db.run('UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?', [hash, userId]);
 }
-
-// --- ФУНКЦИИ ПРОФИЛЯ ---
 
 export async function updateOwnPassword(userId, newPassword) {
     const db = await getDbConnection();
     const hash = await bcrypt.hash(newPassword, 10);
-    return db.run(
-        'UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?',
-        [hash, userId]
-    );
+    return db.run('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?', [hash, userId]);
 }
 
-// --- ФУНКЦИИ ДЛЯ ОБУЧЕНИЯ ---
-
-export const createStudyRoom = async (teacherId, roomCode) => {
+export const getSolvedCountToday = async (userId) => {
     const db = await getDbConnection();
-    await db.run('INSERT INTO study_rooms (teacher_id, room_code) VALUES (?, ?)', [teacherId, roomCode]);
-    return { teacherId, roomCode };
+    const result = await db.get(`
+        SELECT COUNT(DISTINCT puzzle_id) as count
+        FROM user_puzzles
+        WHERE user_id = ? AND date(solved_at) = date('now')
+    `, [userId]);
+    return result ? result.count : 0;
 };
 
-export const findStudyRoomByCode = async (code) => {
-    const db = await getDbConnection();
-    return await db.get(`
-        SELECT r.*, u.username as teacher_name
-        FROM study_rooms r
-        JOIN users u ON r.teacher_id = u.id
-        WHERE r.room_code = ?
-    `, [code]);
-};
-
-export const joinStudentToRoom = async (roomCode, studentId) => {
-    const db = await getDbConnection();
-    await db.run('UPDATE study_rooms SET student_id = ? WHERE room_code = ?', [studentId, roomCode]);
-};
-
-export const updateStudyRoomFen = async (roomCode, fen) => {
-    const db = await getDbConnection();
-    await db.run('UPDATE study_rooms SET fen = ? WHERE room_code = ?', [fen, roomCode]);
-};
-
-export const countTeacherRooms = async (teacherId) => {
-    const db = await getDbConnection();
-    const result = await db.get('SELECT COUNT(*) as count FROM study_rooms WHERE teacher_id = ?', [teacherId]);
-    return result.count;
-};
-
-export const deleteStudyRoom = async (roomCode, teacherId) => {
-    const db = await getDbConnection();
-    return await db.run('DELETE FROM study_rooms WHERE room_code = ? AND teacher_id = ?', [roomCode, teacherId]);
-};
-
-export const getTeacherRooms = async (teacherId) => {
-    const db = await getDbConnection();
-    return await db.all('SELECT * FROM study_rooms WHERE teacher_id = ? ORDER BY created_at DESC', [teacherId]);
-};
-
-export const addTrophyToUser = async (userId, trophy) => {
-    const db = await getDbConnection();
-    try {
-        const user = await db.get('SELECT trophies FROM users WHERE id = ?', [userId]);
-        let trophies = [];
-        try {
-            trophies = (user && user.trophies) ? JSON.parse(user.trophies) : [];
-        } catch (e) { trophies = []; }
-
-        trophies.unshift({ ...trophy, date: new Date().toLocaleDateString('ru-RU') });
-        await db.run('UPDATE users SET trophies = ? WHERE id = ?', [JSON.stringify(trophies), userId]);
-        return true;
-    } catch (e) { return false; }
-};
-
-// --- ФУНКЦИИ БИБЛИОТЕКИ ПОЗИЦИЙ (ОБЩИЕ ДЛЯ ВСЕХ УЧИТЕЛЕЙ) ---
-
-export const addPosition = async (teacherId, title, category, fen) => {
-    const db = await getDbConnection();
-    const finalCategory = category || 'Общее';
-    return await db.run(
-        'INSERT INTO position_library (teacher_id, title, category, fen) VALUES (?, ?, ?, ?)',
-        [teacherId, title, finalCategory, fen]
-    );
-};
-
-export const updatePosition = async (posId, teacherId, { title, category, fen }) => {
-    const db = await getDbConnection();
-    const finalCategory = category || 'Общее';
-    // Убрана проверка teacher_id, чтобы любой учитель мог обновить
-    return await db.run(
-        'UPDATE position_library SET title = ?, category = ?, fen = ? WHERE id = ?',
-        [title, finalCategory, fen, posId]
-    );
-};
-
-export const getTeacherPositions = async () => {
-    const db = await getDbConnection();
-    // Возвращает все позиции для всех учителей
-    return await db.all(`
-        SELECT
-            pl.id,
-            pl.teacher_id,
-            u.username as author_name,
-            pl.title,
-            COALESCE(pl.category, 'Общее') as category,
-            pl.fen,
-            pl.created_at
-        FROM position_library pl
-        JOIN users u ON pl.teacher_id = u.id
-        ORDER BY category, title
-    `);
-};
-
-export const deletePosition = async (posId) => {
-    const db = await getDbConnection();
-    // Убрана проверка teacher_id, чтобы любой учитель мог удалить
-    return await db.run('DELETE FROM position_library WHERE id = ?', [posId]);
+export const checkDailyGoalReached = async (userId) => {
+    const count = await getSolvedCountToday(userId);
+    return count >= 10;
 };
