@@ -1,0 +1,274 @@
+:root {
+    --blue-primary: #007bff;
+    --blue-light: #eef6ff;
+    --bg-body: #f4f7f9;
+    --text-main: #2d3436;
+    --white: #ffffff;
+    --shadow-soft: 0 10px 25px rgba(0, 0, 0, 0.05);
+    --radius: 12px;
+    --danger: #ff4757;
+    --border-color: #edf2f7;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-body);
+    margin: 0; padding: 10px;
+    color: var(--text-main);
+}
+
+.main-layout {
+    display: flex; gap: 20px; max-width: 1600px; margin: 0 auto; height: calc(100vh - 100px);
+}
+
+/* САЙДБАР СЛЕВА */
+.tabs-sidebar {
+    width: 80px; display: flex; flex-direction: column; gap: 15px; align-items: center; padding-top: 10px;
+}
+
+#tabs-list {
+    display: flex; flex-direction: column; gap: 12px; width: 100%; align-items: center;
+}
+
+.tab-item {
+    width: 60px; height: 60px; background: var(--white); border-radius: 15px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    cursor: pointer; box-shadow: var(--shadow-soft); font-size: 10px; transition: 0.2s;
+    position: relative; border: 2px solid transparent; text-align: center;
+    color: #636e72;
+}
+
+.tab-item i { font-size: 20px; margin-bottom: 3px; }
+.tab-item.active { background: var(--blue-primary); color: white; transform: scale(1.05); }
+.tab-item.active i, .tab-item.active span { color: white; }
+
+.add-tab-btn {
+    width: 55px; height: 55px; border: 2px dashed #cbd5e0; background: none;
+    border-radius: 15px; font-size: 24px; color: #cbd5e0; cursor: pointer;
+    transition: 0.2s;
+}
+.add-tab-btn:hover { border-color: var(--blue-primary); color: var(--blue-primary); }
+
+/* ЦЕНТР */
+.board-section { flex: 1; display: flex; flex-direction: column; align-items: center; }
+.board-container {
+    position: relative; width: 100%; max-width: 70vh; background: var(--white);
+    padding: 15px; border-radius: 20px; box-shadow: var(--shadow-soft);
+}
+#myBoard { width: 100% !important; }
+#drawing-canvas { position: absolute; top: 15px; left: 15px; pointer-events: none; z-index: 10; }
+
+#status-msg { margin-bottom: 10px; font-weight: 800; font-size: 14px; text-transform: uppercase; color: var(--text-main); }
+
+.board-controls { display: flex; gap: 10px; width: 100%; max-width: 70vh; margin-top: 15px; }
+
+/* ПРАВАЯ ПАНЕЛЬ */
+.info-panel {
+    width: 350px; background: var(--white); padding: 20px;
+    border-radius: 20px; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; gap: 15px;
+}
+.chat-area {
+    background: #f8f9fa; border-radius: var(--radius); padding: 12px;
+    flex-grow: 1; overflow-y: auto; border: 1px solid var(--border-color);
+    min-height: 200px;
+}
+
+/* ИСТОРИЯ ХОДОВ (PGN) */
+.pgn-container { display: flex; flex-wrap: wrap; gap: 5px; padding: 5px; }
+.pgn-move {
+    cursor: pointer; padding: 4px 10px; background: #eef2f7; border-radius: 6px;
+    font-weight: 600; font-size: 14px; transition: 0.2s; color: var(--text-main);
+}
+.pgn-move:hover { background: var(--blue-primary); color: white; }
+
+/* КНОПКИ */
+.btn-primary-sm { background: var(--blue-primary); color: white; border: none; padding: 12px; border-radius: 10px; font-weight: 700; cursor: pointer; transition: 0.3s; }
+.btn-primary-sm:hover { opacity: 0.9; transform: translateY(-1px); }
+
+.btn-secondary { background: var(--blue-light); color: var(--blue-primary); border: none; padding: 10px; border-radius: 10px; flex: 1; font-weight: 600; cursor: pointer; transition: 0.2s; }
+.btn-secondary:hover { filter: brightness(0.95); }
+
+.btn-danger-light { background: #fff0f1; color: var(--danger); border: none; padding: 10px; border-radius: 10px; flex: 1; font-weight: 600; cursor: pointer; }
+.btn-logout { background: transparent; color: var(--danger); border: 2px solid #fff0f1; padding: 10px; border-radius: 12px; font-weight: 700; cursor: pointer; margin-top: auto; }
+
+/* МОДАЛКИ */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 2000; }
+.editor-modal { background: white; padding: 25px; border-radius: 20px; box-shadow: var(--shadow-soft); max-height: 90vh; overflow-y: auto; }
+.editor-layout { display: flex; gap: 20px; align-items: flex-start; }
+
+#board-editor { width: 450px !important; }
+.editor-tools { flex: 1; display: flex; flex-direction: column; gap: 15px; padding-top: 10px; }
+
+/* БИБЛИОТЕКА И ПОИСК */
+#lib-search-input {
+    width: 100%; padding: 12px 15px; border-radius: 10px; border: 1px solid var(--border-color);
+    font-family: 'Inter', sans-serif; font-size: 14px; transition: 0.2s;
+}
+#lib-search-input:focus {
+    outline: none; border-color: var(--blue-primary); box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.folder-card {
+    transition: 0.2s; border: 1px solid var(--border-color) !important;
+}
+.folder-card:hover {
+    transform: translateY(-3px); background: #f0f7ff !important; border-color: var(--blue-primary) !important;
+}
+
+.lib-pos-card {
+    transition: 0.3s; border: 1px solid var(--border-color) !important; border-radius: 10px; overflow: hidden;
+}
+.lib-pos-card:hover {
+    transform: translateY(-3px); border-color: var(--blue-primary) !important;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+}
+
+/* Удаление вкладок */
+.delete-tab {
+    position: absolute; top: -5px; right: -5px; background: var(--danger);
+    color: white; width: 22px; height: 22px; border-radius: 50%;
+    font-size: 12px; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2); z-index: 5;
+}
+
+/* СКРОЛЛБАР */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #dcdde1; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: #bdc3c7; }
+.pgn-move {
+    cursor: pointer;
+    padding: 2px 5px;
+    border-radius: 4px;
+}
+.pgn-move:hover {
+    background: #e0e0e0;
+}
+.pgn-move-static {
+    cursor: default; /* Обычный курсор для ученика */
+    padding: 2px 5px;
+}
+/* Контейнер вкладки */
+
+/* Иконка закрытия (тот самый квадратик) */
+.delete-tab {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    width: 18px;
+    height: 18px;
+    background: #ff4757 !important; /* Насыщенный красный */
+    color: white !important;
+    border-radius: 50%; /* Делаем круглым */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    z-index: 10;
+    transition: transform 0.1s ease;
+}
+
+.delete-tab:hover {
+    transform: scale(1.1);
+    background: #ff6b81 !important;
+}
+
+/* Скрываем стандартные маркеры, если они лезут */
+.delete-tab i {
+    margin: 0;
+    padding: 0;
+    line-height: 1;
+}
+/* Контейнер для всей истории ходов */
+.pgn-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.5); /* Легкий эффект прозрачности */
+    border-radius: 12px;
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+/* Строка с парой ходов (Белые и Черные) */
+.move-row {
+    display: inline-flex;
+    align-items: center;
+    background: #ffffff;
+    padding: 4px 10px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    transition: transform 0.1s ease;
+}
+
+/* Номер хода (1., 2. и т.д.) */
+.move-number {
+    font-weight: 700;
+    color: #94a3b8; /* Приглушенный серый */
+    margin-right: 8px;
+    font-size: 0.85rem;
+    user-select: none;
+}
+
+/* Общий стиль для текста хода */
+.pgn-move, .pgn-move-static {
+    font-size: 14px;
+    color: #1e293b;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+/* Интерактивный ход (для учителя) */
+.pgn-move {
+    cursor: pointer;
+}
+
+.pgn-move:hover {
+    background-color: #f1f5f9;
+    color: #3182ce;
+}
+
+/* Активный (текущий) ход на доске */
+.active-move {
+    background-color: #3182ce !important; /* Насыщенный синий */
+    color: #ffffff !important;
+    font-weight: 600;
+    box-shadow: 0 2px 4px rgba(49, 130, 206, 0.4);
+}
+
+/* Разделитель между белыми и черными (тире) */
+.move-separator {
+    margin: 0 6px;
+    color: #cbd5e1;
+    font-weight: 300;
+}
+
+/* Кнопка сброса истории (крестик) */
+.pgn-reset-btn {
+    color: #f87171;
+    cursor: pointer;
+    margin-right: 8px;
+    font-size: 1.2rem;
+    display: flex;
+    align-items: center;
+    transition: color 0.2s, transform 0.2s;
+}
+
+.pgn-reset-btn:hover {
+    color: #ef4444;
+    transform: scale(1.15);
+}
+
+/* Кастомизация скроллбара для истории (для Chrome/Safari) */
+.pgn-container::-webkit-scrollbar {
+    width: 6px;
+}
+.pgn-container::-webkit-scrollbar-thumb {
+    background: #e2e8f0;
+    border-radius: 10px;
+}
